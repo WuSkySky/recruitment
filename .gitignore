@@ -1,0 +1,60 @@
+# ROS / colcon workspaces
+build/
+install/
+log/
+logs/
+devel/
+build_isolated/
+devel_isolated/
+install_isolated/
+.colcon/
+
+# ROS bag and database recordings
+*.bag
+*.bag.active
+*.db3
+*.mcap
+
+# CMake / C++ build artifacts
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+Testing/
+*.o
+*.obj
+*.so
+*.a
+
+# Python caches and virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Gazebo / SDFormat runtime data
+.gazebo/
+.sdformat/
+
+# Runtime logs and temporary files
+*.log
+*.pid
+*.tmp
+*.swp
+*.swo
+*~
+
+# IDEs
+.vscode/
+.idea/
+
+# Operating systems
+.DS_Store
+Thumbs.db
