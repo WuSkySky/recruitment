@@ -61,21 +61,31 @@ GimbalInterface::GimbalInterface(
   pitch_angle_feedback_pub_ = node_->create_publisher<std_msgs::msg::Float64>(
     "feedback_pitch_angle", 10);
 
+  // Keep both joints at zero relative velocity until a gimbal command arrives.
+  // Without an initial command, Gazebo leaves the revolute joints passive, so
+  // the chassis can rotate underneath the gimbal while it stays world-fixed.
+  command_timer_ = node_->create_wall_timer(
+    std::chrono::milliseconds(10), std::bind(&GimbalInterface::publish_commands, this));
   feedback_timer_ = node_->create_wall_timer(
     std::chrono::milliseconds(10), std::bind(&GimbalInterface::publish_feedback, this));
 }
 
 void GimbalInterface::yaw_velocity_cb(const std_msgs::msg::Float64::SharedPtr msg)
 {
-  ignition::msgs::Double gz_msg;
-  gz_msg.set_data(msg->data);
-  gz_yaw_cmd_pub_->Publish(gz_msg);
+  yaw_velocity_command_.store(msg->data);
 }
 
 void GimbalInterface::pitch_velocity_cb(const std_msgs::msg::Float64::SharedPtr msg)
 {
+  pitch_velocity_command_.store(msg->data);
+}
+
+void GimbalInterface::publish_commands()
+{
   ignition::msgs::Double gz_msg;
-  gz_msg.set_data(msg->data);
+  gz_msg.set_data(yaw_velocity_command_.load());
+  gz_yaw_cmd_pub_->Publish(gz_msg);
+  gz_msg.set_data(pitch_velocity_command_.load());
   gz_pitch_cmd_pub_->Publish(gz_msg);
 }
 

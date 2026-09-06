@@ -15,6 +15,7 @@
 #ifndef RECRUITMENT_SIM_ROBOT_BASE__GIMBAL_INTERFACE_HPP_
 #define RECRUITMENT_SIM_ROBOT_BASE__GIMBAL_INTERFACE_HPP_
 
+#include <atomic>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -42,6 +43,7 @@ private:
   void yaw_velocity_cb(const std_msgs::msg::Float64::SharedPtr msg);
   void pitch_velocity_cb(const std_msgs::msg::Float64::SharedPtr msg);
   void gz_joint_state_cb(const ignition::msgs::Model & msg);
+  void publish_commands();
   void publish_feedback();
 
   rclcpp::Node::SharedPtr node_;
@@ -55,8 +57,11 @@ private:
   rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr pitch_velocity_feedback_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr yaw_angle_feedback_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr pitch_angle_feedback_pub_;
+  rclcpp::TimerBase::SharedPtr command_timer_;
   rclcpp::TimerBase::SharedPtr feedback_timer_;
 
+  std::atomic<double> yaw_velocity_command_{0.0};
+  std::atomic<double> pitch_velocity_command_{0.0};
   std::mutex feedback_mutex_;
   double yaw_position_{0.0};
   double pitch_position_{0.0};
