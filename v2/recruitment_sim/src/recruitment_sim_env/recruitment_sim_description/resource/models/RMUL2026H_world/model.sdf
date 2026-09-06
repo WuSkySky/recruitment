@@ -10,7 +10,8 @@
       <visual name="visual">
         <geometry>
           <mesh>
-            <!-- The visual-only mesh duplicates the wall faces with reversed winding. -->
+            <!-- Wall faces in this visual-only mesh point inward: visible from
+                 the field and culled when viewed from outside. -->
             <uri>model://RMUL2026H_world/meshes/RMUL_2026H_visual.stl</uri>
           </mesh>
         </geometry>
