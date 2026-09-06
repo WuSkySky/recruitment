@@ -1,0 +1,18 @@
+world_name: default
+robots:
+  - name: infantry_robot
+    type: pb2025_infantry_robot
+    color: red
+    pose:
+      x: 0.0
+      y: -1.0
+      z: 0.0
+      yaw: 0.0
+  - name: sentry_robot
+    type: pb2025_sentry_robot
+    color: blue
+    pose:
+      x: 0.0
+      y: 1.0
+      z: 0.0
+      yaw: 3.141592653589793
