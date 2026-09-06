@@ -7,20 +7,97 @@
   <model name="RMUL_2026">
     <static>true</static>
     <link name="field">
-      <visual name="visual">
+      <!-- Colors sampled from figures 3-1 through 3-8 of the 2026 RMUL rules.
+           Values below are linear-RGB compensated for Ogre2 so their final
+           on-screen sRGB appearance matches the rulebook artwork. -->
+      <visual name="field_ground_visual">
         <geometry>
           <mesh>
-            <!-- Wall faces in this visual-only mesh point inward: visible from
-                 the field and culled when viewed from outside. -->
-            <uri>model://RMUL2026H_world/meshes/RMUL_2026H_visual.stl</uri>
+            <uri>model://RMUL2026H_world/meshes/RMUL_2026H_ground_visual.stl</uri>
           </mesh>
         </geometry>
         <material>
-          <ambient>0.3 0.3 0.3 1</ambient>
-          <diffuse>0.7 0.7 0.7 1</diffuse>
+          <ambient>0.505 0.505 0.505 1</ambient>
+          <diffuse>0.505 0.505 0.505 1</diffuse>
           <specular>0.01 0.01 0.01 1</specular>
         </material>
         <cast_shadows>true</cast_shadows>
+      </visual>
+
+      <visual name="field_walls_visual">
+        <geometry>
+          <mesh>
+            <!-- Wall faces point inward, so they are culled from outside. -->
+            <uri>model://RMUL2026H_world/meshes/RMUL_2026H_walls_visual.stl</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.169 0.169 0.169 1</ambient>
+          <diffuse>0.169 0.169 0.169 1</diffuse>
+          <specular>0.01 0.01 0.01 1</specular>
+        </material>
+        <cast_shadows>true</cast_shadows>
+      </visual>
+
+      <visual name="highlands_visual">
+        <geometry>
+          <mesh>
+            <uri>model://RMUL2026H_world/meshes/RMUL_2026H_highlands_visual.stl</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.348 0.408 0.492 1</ambient>
+          <diffuse>0.348 0.408 0.492 1</diffuse>
+          <specular>0.01 0.01 0.01 1</specular>
+        </material>
+        <cast_shadows>true</cast_shadows>
+      </visual>
+
+      <!-- The start / supply zones are 1.5 x 2.0 m and point-symmetric. -->
+      <visual name="red_start_supply_zone_visual">
+        <pose>-5.25 3.0 0.002 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>1.5 2.0 0.004</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.201 0.201 0.201 1</ambient>
+          <diffuse>0.201 0.201 0.201 1</diffuse>
+          <specular>0.01 0.01 0.01 1</specular>
+        </material>
+        <cast_shadows>false</cast_shadows>
+      </visual>
+
+      <visual name="blue_start_supply_zone_visual">
+        <pose>5.25 -3.0 0.002 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>1.5 2.0 0.004</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.201 0.201 0.201 1</ambient>
+          <diffuse>0.201 0.201 0.201 1</diffuse>
+          <specular>0.01 0.01 0.01 1</specular>
+        </material>
+        <cast_shadows>false</cast_shadows>
+      </visual>
+
+      <!-- The central control zone is 3.0 x 3.0 m. -->
+      <visual name="control_zone_visual">
+        <pose>0 0 0.002 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>3.0 3.0 0.004</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.309 0.486 0.627 1</ambient>
+          <diffuse>0.309 0.486 0.627 1</diffuse>
+          <specular>0.01 0.01 0.01 1</specular>
+        </material>
+        <cast_shadows>false</cast_shadows>
       </visual>
       <collision name="collision">
         <max_contacts>10</max_contacts>
@@ -62,8 +139,8 @@
           </box>
         </geometry>
         <material>
-          <ambient>0.3 0.3 0.3 1</ambient>
-          <diffuse>0.7 0.7 0.7 1</diffuse>
+          <ambient>0.348 0.408 0.492 1</ambient>
+          <diffuse>0.348 0.408 0.492 1</diffuse>
           <specular>0.01 0.01 0.01 1</specular>
         </material>
         <cast_shadows>true</cast_shadows>
@@ -85,8 +162,8 @@
           </box>
         </geometry>
         <material>
-          <ambient>0.3 0.3 0.3 1</ambient>
-          <diffuse>0.7 0.7 0.7 1</diffuse>
+          <ambient>0.348 0.408 0.492 1</ambient>
+          <diffuse>0.348 0.408 0.492 1</diffuse>
           <specular>0.01 0.01 0.01 1</specular>
         </material>
         <cast_shadows>true</cast_shadows>

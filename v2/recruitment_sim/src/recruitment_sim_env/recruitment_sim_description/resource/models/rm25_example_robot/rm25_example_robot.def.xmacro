@@ -38,10 +38,6 @@
                 <pose>-0.208 0 0 0 0 0</pose>
                 <xmacro_block name="geometry_box" x="0.055" y="0.367" z="0.055"/>
             </collision>
-            <sensor name="chassis_imu" type="imu">
-                <always_on>1</always_on>
-                <update_rate>200</update_rate>
-            </sensor>
         </link>
         <!--front_left wheel link and joint-->
         <xmacro_block name="chassis_wheel_l" prefix="front_left" parent="chassis" pose="0.207 0.194 0 0 0 0"/>
@@ -52,46 +48,10 @@
         <!--rear_right wheel link and joint-->
         <xmacro_block name="chassis_wheel_l" prefix="rear_right" parent="chassis" pose="-0.207 -0.194 0 0 0 0"/>
 
-        <joint name="gimbal_yaw_odom_joint" type="revolute">
-            <pose relative_to='chassis'>0 0 ${gimbal_yaw_height} 0 0 0</pose>
-            <parent>chassis</parent>
-            <child>gimbal_yaw_odom</child>
-            <axis>
-                <xyz>0 0 1</xyz>
-                <limit>
-                    <effort>100</effort>
-                    <velocity>50</velocity>
-                    <lower>-1.79769e+308</lower>
-                    <upper>1.79769e+308</upper>
-                </limit>
-            </axis>
-        </joint>
-        <link name="gimbal_yaw_odom">
-            <pose relative_to="gimbal_yaw_odom_joint">0 0 0 0 0 0</pose>
-        </link>
-
-        <joint name="gimbal_pitch_odom_joint" type="fixed">
-            <pose relative_to='gimbal_yaw_odom'>0 0 ${gimbal_pitch_height} 0 0 0</pose>
-            <parent>gimbal_yaw_odom</parent>
-            <child>gimbal_pitch_odom</child>
-            <axis>
-                <xyz>0 1 0</xyz>
-                <limit>
-                    <effort>100</effort>
-                    <velocity>50</velocity>
-                    <lower>${-3.14*0.25}</lower>
-                    <upper>${3.14*0.18}</upper>
-                </limit>
-            </axis>
-        </joint>
-        <link name="gimbal_pitch_odom">
-            <pose relative_to="gimbal_pitch_odom_joint">0 0 0 0 0 0</pose>
-        </link>
-
         <!--gimbal yaw module-->
         <joint name="gimbal_yaw_joint" type="revolute">
-            <pose relative_to='gimbal_pitch_odom'>0 0 -${gimbal_pitch_height} 0 0 0</pose>
-            <parent>gimbal_pitch_odom</parent>
+            <pose relative_to='chassis'>0 0 ${gimbal_yaw_height} 0 0 0</pose>
+            <parent>chassis</parent>
             <child>gimbal_yaw</child>
             <axis>
                 <xyz>0 0 1</xyz>

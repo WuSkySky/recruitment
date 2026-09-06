@@ -10,29 +10,34 @@ from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from recruitment_sim_description.urdf_generator import UrdfGenerator
 from xmacro.xmacro4sdf import XMLMacro4sdf
 
 
-SUPPORTED_ROBOTS = {"pb2025_infantry_robot", "pb2025_sentry_robot"}
+ROBOT_TOPIC_TYPES = {
+    "pb2025_infantry_robot": "infantry",
+    "pb2025_sentry_robot": "sentry",
+}
+SUPPORTED_ROBOTS = set(ROBOT_TOPIC_TYPES)
 SUPPORTED_COLORS = {"none", "red", "blue", "yellow", "white"}
 
 
-def _bridge_mapping(robot_name, robot_type, world_name):
+def _robot_namespace(robot):
+    return f"{robot['color']}/{ROBOT_TOPIC_TYPES[robot['type']]}"
+
+
+def _bridge_mapping(robot_name, robot_namespace, robot_type, world_name):
     model_prefix = f"/world/{world_name}/model/{robot_name}"
+    ros_prefix = f"/{robot_namespace}"
     mappings = [
-        (f"/{robot_name}/odometry", f"/{robot_name}/chassis_odometry_gt", "nav_msgs/msg/Odometry", "ignition.msgs.Odometry"),
-        (f"{model_prefix}/joint_state", f"/{robot_name}/joint_states", "sensor_msgs/msg/JointState", "ignition.msgs.Model"),
-        (f"{model_prefix}/link/chassis/sensor/chassis_imu/imu", f"/{robot_name}/chassis_imu", "sensor_msgs/msg/Imu", "ignition.msgs.IMU"),
-        (f"{model_prefix}/link/gimbal_pitch/sensor/gimbal_imu/imu", f"/{robot_name}/gimbal_imu", "sensor_msgs/msg/Imu", "ignition.msgs.IMU"),
-        (f"{model_prefix}/link/front_industrial_camera/sensor/front_industrial_camera/image", f"/{robot_name}/front_industrial_camera/image", "sensor_msgs/msg/Image", "ignition.msgs.Image"),
-        (f"{model_prefix}/link/front_industrial_camera/sensor/front_industrial_camera/camera_info", f"/{robot_name}/front_industrial_camera/camera_info", "sensor_msgs/msg/CameraInfo", "ignition.msgs.CameraInfo"),
+        (f"/{robot_name}/odometry", f"{ros_prefix}/chassis_odometry_gt", "nav_msgs/msg/Odometry", "ignition.msgs.Odometry"),
+        (f"{model_prefix}/link/gimbal_pitch/sensor/gimbal_imu/imu", f"{ros_prefix}/gimbal_imu", "sensor_msgs/msg/Imu", "ignition.msgs.IMU"),
+        (f"{model_prefix}/link/front_industrial_camera/sensor/front_industrial_camera/image", f"{ros_prefix}/front_industrial_camera/image", "sensor_msgs/msg/Image", "ignition.msgs.Image"),
+        (f"{model_prefix}/link/front_industrial_camera/sensor/front_industrial_camera/camera_info", f"{ros_prefix}/front_industrial_camera/camera_info", "sensor_msgs/msg/CameraInfo", "ignition.msgs.CameraInfo"),
     ]
     if robot_type == "pb2025_sentry_robot":
         mappings.extend(
             [
-                (f"{model_prefix}/link/front_mid360/sensor/front_mid360_lidar/scan/points", f"/{robot_name}/livox/lidar", "sensor_msgs/msg/PointCloud2", "ignition.msgs.PointCloudPacked"),
-                (f"{model_prefix}/link/front_mid360/sensor/front_mid360_imu/imu", f"/{robot_name}/livox/imu", "sensor_msgs/msg/Imu", "ignition.msgs.IMU"),
+                (f"{model_prefix}/link/front_mid360/sensor/front_mid360_lidar/scan/points", f"{ros_prefix}/livox/lidar", "sensor_msgs/msg/PointCloud2", "ignition.msgs.PointCloudPacked"),
             ]
         )
     return mappings
@@ -45,6 +50,7 @@ def _validate_config(config):
         raise RuntimeError("robots config must contain at least one robot")
 
     names = set()
+    namespaces = set()
     for index, robot in enumerate(config["robots"]):
         if not isinstance(robot, dict):
             raise RuntimeError(f"robots[{index}] must be a mapping")
@@ -58,6 +64,10 @@ def _validate_config(config):
             raise RuntimeError(f"unsupported robot type: {robot['type']}")
         if robot["color"] not in SUPPORTED_COLORS:
             raise RuntimeError(f"unsupported robot color: {robot['color']}")
+        robot_namespace = _robot_namespace(robot)
+        if robot_namespace in namespaces:
+            raise RuntimeError(f"duplicate robot topic namespace: /{robot_namespace}")
+        namespaces.add(robot_namespace)
         if not isinstance(robot["pose"], dict):
             raise RuntimeError(f"robots[{index}].pose must be a mapping")
         missing_pose = {"x", "y", "z", "yaw"} - robot["pose"].keys()
@@ -83,6 +93,7 @@ def _spawn_robots(context: LaunchContext):
     for robot in config["robots"]:
         robot_name = robot["name"]
         robot_type = robot["type"]
+        robot_namespace = _robot_namespace(robot)
         pose = robot["pose"]
         xmacro_path = os.path.join(
             description_share, "resource", "xmacro", f"{robot_type}.sdf.xmacro"
@@ -92,10 +103,6 @@ def _spawn_robots(context: LaunchContext):
         xmacro.set_xml_file(xmacro_path)
         xmacro.generate({"global_initial_color": robot["color"]})
         robot_sdf = xmacro.to_string()
-
-        urdf_generator = UrdfGenerator()
-        urdf_generator.parse_from_sdf_string(robot_sdf)
-        robot_urdf = urdf_generator.to_string()
 
         actions.append(
             Node(
@@ -118,7 +125,7 @@ def _spawn_robots(context: LaunchContext):
             Node(
                 package="recruitment_sim_robot_base",
                 executable="robot_base",
-                namespace=robot_name,
+                namespace=robot_namespace,
                 output="screen",
                 parameters=[
                     base_params,
@@ -127,20 +134,7 @@ def _spawn_robots(context: LaunchContext):
                 arguments=["--ros-args", "--log-level", log_level],
             )
         )
-        actions.append(
-            Node(
-                package="robot_state_publisher",
-                executable="robot_state_publisher",
-                namespace=robot_name,
-                output="screen",
-                remappings=[("/tf", "tf"), ("/tf_static", "tf_static")],
-                parameters=[
-                    {"use_sim_time": True, "robot_description": robot_urdf}
-                ],
-            )
-        )
-
-        mappings = _bridge_mapping(robot_name, robot_type, world_name)
+        mappings = _bridge_mapping(robot_name, robot_namespace, robot_type, world_name)
         actions.append(
             Node(
                 package="ros_gz_bridge",

@@ -13,6 +13,8 @@
 // limitations under the License.
 #include "recruitment_sim_robot_base/gz_shoot_actuator.hpp"
 
+#include "ignition/msgs/boolean.pb.h"
+
 #include <memory>
 #include <string>
 
@@ -20,38 +22,23 @@ namespace recruitment_sim_robot_base
 {
 
 IgnShootActuator::IgnShootActuator(
-  rclcpp::Node::SharedPtr node,
   std::shared_ptr<ignition::transport::Node> gz_node,
   const std::string & robot_name,
   const std::string & shooter_name)
-: node_(node), gz_node_(gz_node)
+: gz_node_(gz_node)
 {
-  // create ignition pub
   std::string gz_shoot_cmd_topic = "/" + robot_name + "/" + shooter_name + "/shoot";
   gz_shoot_cmd_pub_ = std::make_unique<ignition::transport::Node::Publisher>(
-    gz_node_->Advertise<ignition::msgs::Int32>(gz_shoot_cmd_topic));
-  std::string gz_set_vel_topic = "/" + robot_name + "/" + shooter_name + "/set_vel";
-  gz_set_vel_pub_ = std::make_unique<ignition::transport::Node::Publisher>(
-    gz_node_->Advertise<ignition::msgs::Double>(gz_set_vel_topic));
+    gz_node_->Advertise<ignition::msgs::Boolean>(gz_shoot_cmd_topic));
 }
 
-void IgnShootActuator::set(const recruitment_sim_interfaces::msg::ShootCmd & data)
+void IgnShootActuator::set(const bool & enabled)
 {
   if (!enable_) {
     return;
   }
-  // set velocity
-  if (data.projectile_velocity > 0.0 &&
-    std::fabs(data.projectile_velocity - projectile_vel_) > 0.001)
-  {
-    projectile_vel_ = data.projectile_velocity;
-    ignition::msgs::Double gz_msg;
-    gz_msg.set_data(projectile_vel_);
-    gz_set_vel_pub_->Publish(gz_msg);
-  }
-  // publish shoot msg
-  ignition::msgs::Int32 gz_msg;
-  gz_msg.set_data(data.projectile_num);
+  ignition::msgs::Boolean gz_msg;
+  gz_msg.set_data(enabled);
   gz_shoot_cmd_pub_->Publish(gz_msg);
 }
 

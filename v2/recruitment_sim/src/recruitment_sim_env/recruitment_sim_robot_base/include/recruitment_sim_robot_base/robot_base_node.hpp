@@ -15,24 +15,19 @@
 #ifndef RECRUITMENT_SIM_ROBOT_BASE__ROBOT_BASE_NODE_HPP_
 #define RECRUITMENT_SIM_ROBOT_BASE__ROBOT_BASE_NODE_HPP_
 
-#include <thread>
 #include <memory>
 #include "rclcpp/rclcpp.hpp"
 
 #include "recruitment_sim_robot_base/gz_chassis_actuator.hpp"
-#include "recruitment_sim_robot_base/gz_gimbal_actuator.hpp"
 #include "recruitment_sim_robot_base/gz_shoot_actuator.hpp"
-#include "recruitment_sim_robot_base/gz_gimbal_imu.hpp"
-#include "recruitment_sim_robot_base/gz_gimbal_encoder.hpp"
 #include "recruitment_sim_robot_base/gz_odometry.hpp"
 #include "recruitment_sim_robot_base/gz_light_bar_cmd.hpp"
 
 #include "recruitment_sim_robot_base/chassis_controller.hpp"
-#include "recruitment_sim_robot_base/gimbal_controller.hpp"
+#include "recruitment_sim_robot_base/gimbal_interface.hpp"
 #include "recruitment_sim_robot_base/shooter_controller.hpp"
 #include "recruitment_sim_robot_base/odometry_publisher.hpp"
 #include "recruitment_sim_interfaces/srv/set_light_color.hpp"
-#include "recruitment_sim_robot_base/pid.hpp"
 
 namespace recruitment_sim_robot_base
 {
@@ -58,16 +53,13 @@ private:
   rclcpp::Service<recruitment_sim_interfaces::srv::SetLightColor>::SharedPtr light_color_service_;
   // ign actuator moudule
   std::shared_ptr<recruitment_sim_robot_base::IgnChassisActuator> chassis_actuator_;
-  std::shared_ptr<recruitment_sim_robot_base::IgnGimbalActuator> gimbal_vel_actuator_;
   std::shared_ptr<recruitment_sim_robot_base::IgnShootActuator> shoot_actuator_;
   std::shared_ptr<recruitment_sim_robot_base::IgnLightBarCmd> gz_light_bar_cmd_;
   // ign sensor moudule
-  std::shared_ptr<recruitment_sim_robot_base::IgnGimbalEncoder> gz_gimbal_encoder_;
-  std::shared_ptr<recruitment_sim_robot_base::IgnGimbalImu> gz_gimbal_imu_;
   std::shared_ptr<recruitment_sim_robot_base::IgnOdometry> gz_chassis_odometry_;
   // ros controller/publisher wrapper
   std::shared_ptr<recruitment_sim_robot_base::ChassisController> chassis_controller_;
-  std::shared_ptr<recruitment_sim_robot_base::GimbalController> gimbal_controller_;
+  std::shared_ptr<recruitment_sim_robot_base::GimbalInterface> gimbal_interface_;
   std::shared_ptr<recruitment_sim_robot_base::ShooterController> shooter_controller_;
   std::shared_ptr<recruitment_sim_robot_base::OdometryPublisher> odometry_publisher_;
 };

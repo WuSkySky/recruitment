@@ -9,7 +9,6 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 find_package(ament_cmake REQUIRED)
-find_package(example_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(ignition-msgs8 REQUIRED)
 find_package(ignition-transport11 REQUIRED)
@@ -17,20 +16,15 @@ find_package(nav_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(recruitment_sim_interfaces REQUIRED)
-find_package(sensor_msgs REQUIRED)
-find_package(tf2_ros REQUIRED)
+find_package(std_msgs REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED
   src/gz_module/gz_chassis_actuator.cpp
-  src/gz_module/gz_gimbal_actuator.cpp
   src/gz_module/gz_shoot_actuator.cpp
-  src/gz_module/gz_gimbal_imu.cpp
-  src/gz_module/gz_gimbal_encoder.cpp
   src/gz_module/gz_odometry.cpp
   src/gz_module/gz_light_bar_cmd.cpp
-  src/pid.cpp
   src/chassis_controller.cpp
-  src/gimbal_controller.cpp
+  src/gimbal_interface.cpp
   src/shooter_controller.cpp
   src/odometry_publisher.cpp
   src/robot_base_node.cpp
@@ -40,14 +34,12 @@ target_include_directories(${PROJECT_NAME} PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 ament_target_dependencies(${PROJECT_NAME}
-  example_interfaces
   geometry_msgs
   nav_msgs
   rclcpp
   rclcpp_components
   recruitment_sim_interfaces
-  sensor_msgs
-  tf2_ros
+  std_msgs
 )
 target_link_libraries(${PROJECT_NAME}
   ignition-msgs8::core
@@ -68,18 +60,14 @@ install(TARGETS ${PROJECT_NAME}
 )
 install(TARGETS robot_base DESTINATION lib/${PROJECT_NAME})
 install(PROGRAMS
-  scripts/test_chassis_cmd.py
-  scripts/test_gimbal_cmd.py
-  scripts/test_gimbal_cmd2.py
-  scripts/test_shoot_cmd.py
   scripts/test_light_color.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
 ament_export_targets(${PROJECT_NAME} HAS_LIBRARY_TARGET)
 ament_export_dependencies(
-  example_interfaces geometry_msgs nav_msgs rclcpp rclcpp_components
-  recruitment_sim_interfaces sensor_msgs tf2_ros
+  geometry_msgs nav_msgs rclcpp rclcpp_components
+  recruitment_sim_interfaces std_msgs
 )
 ament_export_dependencies(ignition-msgs8 ignition-transport11)
 ament_package()

@@ -32,17 +32,14 @@ OdometryPublisher::OdometryPublisher(
   node_->declare_parameter(param_ns + "rate", rate);
   node_->declare_parameter(param_ns + "frame_id", frame_id_);
   node_->declare_parameter(param_ns + "child_frame_id", child_frame_id_);
-  node_->declare_parameter(param_ns + "publish_tf", publish_tf_);
   node_->declare_parameter(param_ns + "use_footprint", use_footprint_);
   node_->get_parameter(param_ns + "rate", rate);
   node_->get_parameter(param_ns + "frame_id", frame_id_);
   node_->get_parameter(param_ns + "child_frame_id", child_frame_id_);
-  node_->get_parameter(param_ns + "publish_tf", publish_tf_);
   node_->get_parameter(param_ns + "use_footprint", use_footprint_);
   // create ros pub and timer
   std::string odom_topic = "robot_base/odom";
   odom_pub_ = node_->create_publisher<nav_msgs::msg::Odometry>(odom_topic, 10);
-  tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(node_);
   auto period = std::chrono::microseconds(1000000 / rate);
   timer_ = node_->create_wall_timer(
     period, std::bind(&OdometryPublisher::timer_callback, this));
@@ -64,18 +61,6 @@ void OdometryPublisher::timer_callback()
     odom_msg.pose.pose.position.z = 0;
   }
   odom_pub_->publish(odom_msg);
-  // tf
-  if (publish_tf_) {
-    geometry_msgs::msg::TransformStamped tf_msg;
-    tf_msg.header.frame_id = odom_msg.header.frame_id;
-    tf_msg.header.stamp = odom_msg.header.stamp;
-    tf_msg.child_frame_id = odom_msg.child_frame_id;
-    tf_msg.transform.translation.x = odom_msg.pose.pose.position.x;
-    tf_msg.transform.translation.y = odom_msg.pose.pose.position.y;
-    tf_msg.transform.translation.z = odom_msg.pose.pose.position.z;
-    tf_msg.transform.rotation = odom_msg.pose.pose.orientation;
-    tf_broadcaster_->sendTransform(tf_msg);
-  }
 }
 
 }  // namespace recruitment_sim_robot_base

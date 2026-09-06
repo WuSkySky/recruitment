@@ -19,33 +19,26 @@
 #include <string>
 
 #include "ignition/transport/Node.hh"
-#include "recruitment_sim_interfaces/msg/shoot_cmd.hpp"
 #include "hardware_interface.hpp"
 
 namespace recruitment_sim_robot_base
 {
 
-class IgnShootActuator : public Actuator<recruitment_sim_interfaces::msg::ShootCmd>
+class IgnShootActuator : public Actuator<bool>
 {
 public:
   IgnShootActuator(
-    rclcpp::Node::SharedPtr node,
     std::shared_ptr<ignition::transport::Node> gz_node,
     const std::string & robot_name,
     const std::string & shooter_name);
   ~IgnShootActuator() {}
 
-  void set(const recruitment_sim_interfaces::msg::ShootCmd & data) override;
+  void set(const bool & enabled) override;
   void enable(bool enable) {enable_ = enable;}
 
 private:
-  rclcpp::Node::SharedPtr node_;
   std::shared_ptr<ignition::transport::Node> gz_node_;
-  // ign pub and sub
   std::unique_ptr<ignition::transport::Node::Publisher> gz_shoot_cmd_pub_;
-  std::unique_ptr<ignition::transport::Node::Publisher> gz_set_vel_pub_;
-  // data
-  double projectile_vel_{0};
   bool enable_{false};
 };
 

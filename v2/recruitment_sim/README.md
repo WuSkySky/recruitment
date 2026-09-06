@@ -21,10 +21,10 @@ source install/setup.bash
 
 工作空间只包含 4 个 ROS 包：
 
-- `recruitment_sim_interfaces`：控制消息和灯条服务。
+- `recruitment_sim_interfaces`：灯条服务。
 - `recruitment_sim_description`：机器人与 RMUL 2026 场地描述、模型资源、SDF→URDF 工具和 Gazebo 插件。
 - `recruitment_sim_robot_base`：底盘、云台、射击、灯条与里程计控制节点。
-- `recruitment_sim_bringup`：机器人配置、生成、桥接、TF 和 RViz 启动。
+- `recruitment_sim_bringup`：机器人配置、生成、传感器桥接和 RViz 启动。
 
 ## 启动
 
@@ -55,33 +55,42 @@ ros2 launch recruitment_sim_bringup bringup.launch.py \
 
 机器人列表位于
 `src/recruitment_sim_env/recruitment_sim_bringup/config/robots.yaml`。每项必须提供唯一的
-`name`、受支持的 `type`、灯条 `color` 以及 `x/y/z/yaw` 初始位姿；可以删除、复制条目以
-启动单台、多台或多个同类型机器人。也可以通过 `robots_file:=/absolute/path/robots.yaml`
-加载其他配置。
+`name`、受支持的 `type`、队伍/灯条 `color` 以及 `x/y/z/yaw` 初始位姿。ROS 话题前缀由
+`color/type` 决定，例如红方步兵为 `/red/infantry`、蓝方哨兵为 `/blue/sentry`；同一配置
+中不允许出现重复前缀。也可以通过 `robots_file:=/absolute/path/robots.yaml` 加载其他配置。
 
 ## 控制接口
 
-将下方 `<robot>` 替换为 `infantry_robot` 或 `sentry_robot`：
+将下方 `<team>/<type>` 替换为队伍颜色和机器人类型，例如 `red/infantry` 或
+`blue/sentry`：
 
-- `/<robot>/cmd_vel`：`geometry_msgs/msg/Twist` 底盘速度。
-- `/<robot>/robot_base/chassis_cmd`：支持速度和跟随云台模式。
-- `/<robot>/cmd_gimbal_joint`：`sensor_msgs/msg/JointState` 云台目标角。
-- `/<robot>/robot_base/gimbal_cmd`、`gimbal_state`：自有云台命令和状态。
-- `/<robot>/cmd_shoot`：`example_interfaces/msg/UInt8`，数值为发射数量。
-- `/<robot>/robot_base/shoot_cmd`：可同时指定数量和弹丸速度。
-- `/<robot>/robot_base/set_light_color`：灯条颜色服务，0–4 对应关闭、红、蓝、黄、白。
-- `/<robot>/chassis_odometry_gt`、`joint_states`、`chassis_imu`、`gimbal_imu`：状态反馈。
-- `/<robot>/front_industrial_camera/image`、`camera_info`：工业相机。
-- 哨兵额外提供 `/<robot>/livox/lidar` 和 `/<robot>/livox/imu`。
-- TF 分别发布在 `/<robot>/tf` 和 `/<robot>/tf_static`，避免多机器人串扰。
+- `/<team>/<type>/cmd_chassis_vel`：`geometry_msgs/msg/Twist` 底盘速度；`linear.x`、`linear.y`
+  和 `angular.z` 均按底盘坐标系解释，底盘不会自动跟随云台。
+- `/<team>/<type>/cmd_yaw_vel`、`cmd_pitch_vel`：`std_msgs/msg/Float64` 云台 yaw/pitch
+  速度命令，单位为 `rad/s`。命令会一直生效，必须显式发送 `0.0` 才会停止。
+- `/<team>/<type>/feedback_yaw_vel`、`feedback_pitch_vel`：`std_msgs/msg/Float64`
+  云台实际关节速度，单位为 `rad/s`，以 100 Hz 发布。
+- `/<team>/<type>/feedback_yaw_angle`、`feedback_pitch_angle`：`std_msgs/msg/Float64`
+  云台相对初始朝前位置的单圈角度，单位为 `rad`，范围为 `[-π, π]`，以 100 Hz 发布。
+- `/<team>/<type>/cmd_shoot`：`std_msgs/msg/Bool` 射击开关；`true` 时以 50 ms
+  间隔和固定 `18 m/s` 弹速持续射击，必须显式发送 `false` 才会停止。
+- `/<team>/<type>/robot_base/set_light_color`：灯条颜色服务，0–4 对应关闭、红、蓝、黄、白。
+- `/<team>/<type>/chassis_odometry_gt`、`gimbal_imu`：状态反馈。
+- `/<team>/<type>/front_industrial_camera/image`、`camera_info`：工业相机。
+- 哨兵额外提供 `/<team>/sentry/livox/lidar`。
+- 当前不发布 `/tf`、`/tf_static` 或 `joint_states`。
 
 交互式测试工具示例：
 
 ```bash
-ros2 run recruitment_sim_robot_base test_chassis_cmd.py --ros-args -r __ns:=/infantry_robot/robot_base
-ros2 run recruitment_sim_robot_base test_gimbal_cmd.py --ros-args -r __ns:=/infantry_robot/robot_base
-ros2 run recruitment_sim_robot_base test_shoot_cmd.py --ros-args -r __ns:=/infantry_robot/robot_base
-ros2 run recruitment_sim_robot_base test_light_color.py yellow --ros-args -r __ns:=/infantry_robot/robot_base
+ros2 topic pub --once /red/infantry/cmd_chassis_vel geometry_msgs/msg/Twist \
+  "{linear: {x: 1.0}, angular: {z: 0.0}}"
+ros2 topic pub --once /red/infantry/cmd_yaw_vel std_msgs/msg/Float64 "{data: 1.0}"
+ros2 topic echo /red/infantry/feedback_yaw_angle
+ros2 topic pub --once /red/infantry/cmd_yaw_vel std_msgs/msg/Float64 "{data: 0.0}"
+ros2 topic pub --once /red/infantry/cmd_shoot std_msgs/msg/Bool "{data: true}"
+ros2 topic pub --once /red/infantry/cmd_shoot std_msgs/msg/Bool "{data: false}"
+ros2 run recruitment_sim_robot_base test_light_color.py yellow --ros-args -r __ns:=/red/infantry/robot_base
 ```
 
 ## 裁判系统边界

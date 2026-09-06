@@ -14,7 +14,6 @@
 
 #include "recruitment_sim_robot_base/robot_base_node.hpp"
 
-#include <thread>
 #include <memory>
 #include <string>
 
@@ -35,36 +34,27 @@ RobotBaseNode::RobotBaseNode(const rclcpp::NodeOptions & options)
   node_->get_parameter("world_name", world_name);
   node_->get_parameter("use_odometry", use_odometry);
   // ign topic string
-  std::string gz_chassis_cmd_topic = "/" + robot_name + "/cmd_vel";
+  std::string gz_cmd_vel_topic = "/" + robot_name + "/cmd_vel";
   std::string gz_pitch_cmd_topic = "/model/" + robot_name + "/joint/gimbal_pitch_joint/cmd_vel";
   std::string gz_yaw_cmd_topic = "/model/" + robot_name + "/joint/gimbal_yaw_joint/cmd_vel";
   std::string gz_joint_state_topic = "/world/" + world_name + "/model/" + robot_name +
     "/joint_state";
-  std::string gz_gimbal_imu_topic = "/world/" + world_name + "/model/" + robot_name +
-    "/link/gimbal_pitch/sensor/gimbal_imu/imu";
   std::string gz_light_bar_cmd_topic = "/" + robot_name + "/color/set_state";
   // create hardware moudule
   // Actuator
   chassis_actuator_ = std::make_shared<recruitment_sim_robot_base::IgnChassisActuator>(
-    node_, gz_node_, gz_chassis_cmd_topic);
-  gimbal_vel_actuator_ = std::make_shared<recruitment_sim_robot_base::IgnGimbalActuator>(
-    node_, gz_node_, gz_pitch_cmd_topic, gz_yaw_cmd_topic);
+    node_, gz_node_, gz_cmd_vel_topic);
   shoot_actuator_ = std::make_shared<recruitment_sim_robot_base::IgnShootActuator>(
-    node_, gz_node_, robot_name, "small_shooter");
+    gz_node_, robot_name, "small_shooter");
   gz_light_bar_cmd_ = std::make_shared<recruitment_sim_robot_base::IgnLightBarCmd>(
     gz_node_, gz_light_bar_cmd_topic);
-  // sensor wrapper
-  gz_gimbal_encoder_ = std::make_shared<recruitment_sim_robot_base::IgnGimbalEncoder>(
-    node_, gz_node_, gz_joint_state_topic);
-  gz_gimbal_imu_ = std::make_shared<recruitment_sim_robot_base::IgnGimbalImu>(
-    node_, gz_node_, gz_gimbal_imu_topic);
   // create controller and publisher
   chassis_controller_ = std::make_shared<recruitment_sim_robot_base::ChassisController>(
-    node_, chassis_actuator_, gz_gimbal_encoder_->get_position_sensor());
-  gimbal_controller_ = std::make_shared<recruitment_sim_robot_base::GimbalController>(
-    node_, gimbal_vel_actuator_, gz_gimbal_imu_->get_position_sensor());
+    node_, chassis_actuator_);
+  gimbal_interface_ = std::make_shared<recruitment_sim_robot_base::GimbalInterface>(
+    node_, gz_node_, gz_pitch_cmd_topic, gz_yaw_cmd_topic, gz_joint_state_topic);
   shooter_controller_ = std::make_shared<recruitment_sim_robot_base::ShooterController>(
-    node_, shoot_actuator_, "small_shooter_controller");
+    node_, shoot_actuator_);
   // odometry
   if (use_odometry) {
     gz_chassis_odometry_ = std::make_shared<recruitment_sim_robot_base::IgnOdometry>(
@@ -80,10 +70,7 @@ RobotBaseNode::RobotBaseNode(const rclcpp::NodeOptions & options)
       std::placeholders::_1, std::placeholders::_2));
   // enable actuator and sensor
   chassis_actuator_->enable(true);
-  gimbal_vel_actuator_->enable(true);
   shoot_actuator_->enable(true);
-  gz_gimbal_encoder_->enable(true);
-  gz_gimbal_imu_->enable(true);
   if (use_odometry) {
     gz_chassis_odometry_->enable(true);
   }

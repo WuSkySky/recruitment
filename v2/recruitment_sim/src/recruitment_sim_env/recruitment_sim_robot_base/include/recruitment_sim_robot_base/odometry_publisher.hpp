@@ -20,7 +20,6 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "nav_msgs/msg/odometry.hpp"
-#include "tf2_ros/transform_broadcaster.h"
 #include "hardware_interface.hpp"
 
 namespace recruitment_sim_robot_base
@@ -42,7 +41,6 @@ private:
   rclcpp::Node::SharedPtr node_;
   // ros pub
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
-  std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
   rclcpp::TimerBase::SharedPtr timer_;
   // sensor data
   std::mutex msg_mut_;
@@ -51,7 +49,6 @@ private:
   std::string frame_id_{"odom"};
   std::string child_frame_id_{"base_link"};
   bool use_footprint_{false};
-  bool publish_tf_{true};
 };
 }  // namespace recruitment_sim_robot_base
 #endif  // RECRUITMENT_SIM_ROBOT_BASE__ODOMETRY_PUBLISHER_HPP_
