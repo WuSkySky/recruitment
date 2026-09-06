@@ -22,13 +22,13 @@ source install/setup.bash
 工作空间只包含 4 个 ROS 包：
 
 - `recruitment_sim_interfaces`：控制消息和灯条服务。
-- `recruitment_sim_robot`：机器人描述、最小模型资源、SDF→URDF 工具和 Gazebo 插件。
+- `recruitment_sim_description`：机器人与 RMUL 2026 场地描述、模型资源、SDF→URDF 工具和 Gazebo 插件。
 - `recruitment_sim_robot_base`：底盘、云台、射击、灯条与里程计控制节点。
-- `recruitment_sim_bringup`：空场、机器人配置、生成、桥接、TF 和 RViz 启动。
+- `recruitment_sim_bringup`：机器人配置、生成、桥接、TF 和 RViz 启动。
 
 ## 启动
 
-默认同时启动红色步兵和蓝色哨兵：
+默认在 RMUL 2026 3V3 场地中同时启动红色步兵和蓝色哨兵：
 
 ```bash
 ros2 launch recruitment_sim_bringup bringup.launch.py
@@ -44,6 +44,13 @@ ros2 launch recruitment_sim_bringup bringup.launch.py gui:=false
 
 ```bash
 ros2 launch recruitment_sim_bringup bringup.launch.py rviz:=true
+```
+
+如需切换回空场，可显式指定：
+
+```bash
+ros2 launch recruitment_sim_bringup bringup.launch.py \
+  world_file:=$(ros2 pkg prefix recruitment_sim_description)/share/recruitment_sim_description/resource/worlds/empty_world.sdf
 ```
 
 机器人列表位于

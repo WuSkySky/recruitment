@@ -8,6 +8,9 @@
 - `rmoss_interfaces`：控制消息定义；Apache-2.0。
 - `sdformat_tools`：SDF→URDF 转换代码；Apache-2.0。
 - `xmacro`：运行时 Python 依赖；MIT。
+- `ROS2_RM_Navigation` / `pb_rm_simulation`：RMUL 2026 3V3 场地 SDF 与网格；MIT，Copyright (c) 2026 MY_nav Contributors。
 
 完整 Apache 2.0 文本保存在 `LICENSES/Apache-2.0.txt`，MIT 文本保存在
-`LICENSES/MIT.txt`。参考源码位于相邻的 `v2/rmu_ws`，不会被本工作空间构建或修改。
+`LICENSES/MIT.txt`；场地上游的原始 MIT 声明另存为 `LICENSES/MY_nav-MIT.txt`。
+RMOSS 参考源码位于相邻的 `v2/rmu_ws`；场地来源为
+[`ROS2_RM_Navigation`](https://github.com/laohao78/ROS2_RM_Navigation/tree/master/src/gazebo/pb_rm_simulation/world/RMUL2026H_world)。

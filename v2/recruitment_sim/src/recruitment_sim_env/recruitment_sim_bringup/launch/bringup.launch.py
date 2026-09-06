@@ -10,7 +10,7 @@ from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from recruitment_sim_robot.urdf_generator import UrdfGenerator
+from recruitment_sim_description.urdf_generator import UrdfGenerator
 from xmacro.xmacro4sdf import XMLMacro4sdf
 
 
@@ -69,7 +69,7 @@ def _validate_config(config):
 
 def _spawn_robots(context: LaunchContext):
     bringup_share = get_package_share_directory("recruitment_sim_bringup")
-    robot_share = get_package_share_directory("recruitment_sim_robot")
+    description_share = get_package_share_directory("recruitment_sim_description")
     robots_file = LaunchConfiguration("robots_file").perform(context)
     log_level = LaunchConfiguration("log_level")
 
@@ -85,7 +85,7 @@ def _spawn_robots(context: LaunchContext):
         robot_type = robot["type"]
         pose = robot["pose"]
         xmacro_path = os.path.join(
-            robot_share, "resource", "xmacro", f"{robot_type}.sdf.xmacro"
+            description_share, "resource", "xmacro", f"{robot_type}.sdf.xmacro"
         )
 
         xmacro = XMLMacro4sdf()
@@ -163,8 +163,11 @@ def _spawn_robots(context: LaunchContext):
 
 def generate_launch_description():
     bringup_share = get_package_share_directory("recruitment_sim_bringup")
+    description_share = get_package_share_directory("recruitment_sim_description")
     ros_gz_share = get_package_share_directory("ros_gz_sim")
-    default_world = os.path.join(bringup_share, "resource", "worlds", "empty_world.sdf")
+    default_world = os.path.join(
+        description_share, "resource", "worlds", "rmul_2026h_world.sdf"
+    )
     default_robots = os.path.join(bringup_share, "config", "robots.yaml")
     default_rviz = os.path.join(bringup_share, "rviz", "visualize_robot.rviz")
 

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(recruitment_sim_robot)
+project(recruitment_sim_description)
 
 if(NOT CMAKE_CXX_STANDARD)
   set(CMAKE_CXX_STANDARD 14)
