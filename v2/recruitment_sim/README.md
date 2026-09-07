@@ -1,6 +1,6 @@
 # Recruitment Simulation
 
-面向招新的 ROS 2 / Gazebo Fortress 双机器人仿真环境，提供 `pb2025_infantry_robot` 和
+面向招新的 ROS 2 / Gazebo Fortress 多机器人仿真环境，提供 `pb2025_infantry_robot` 和
 `pb2025_sentry_robot` 的模型、传感器、底盘、云台、射击与灯条控制。当前版本不包含裁判
 系统，但保留装甲碰撞结构与弹丸物理检测，便于后续接入重构后的裁判模块。
 
@@ -28,7 +28,9 @@ source install/setup.bash
 
 ## 启动
 
-默认在 RMUL 2026 3V3 场地中同时启动红色步兵和蓝色哨兵：
+默认在 RMUL 2026 3V3 场地中启动红蓝双方各一台步兵和一台哨兵，共四台机器人。每方两台
+机器人均在己方启动区短边居中，并沿长边前后排列；步兵在靠场地中心的前位，哨兵在后位：
+两台机器人车头也沿启动区长边朝向场地中心。
 
 ```bash
 ros2 launch recruitment_sim_bringup bringup.launch.py
