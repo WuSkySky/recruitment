@@ -54,7 +54,7 @@ def _validate_config(config):
     for index, robot in enumerate(config["robots"]):
         if not isinstance(robot, dict):
             raise RuntimeError(f"robots[{index}] must be a mapping")
-        missing = {"name", "type", "color", "pose"} - robot.keys()
+        missing = {"name", "type", "color", "pose", "referee"} - robot.keys()
         if missing:
             raise RuntimeError(f"robots[{index}] is missing: {', '.join(sorted(missing))}")
         if robot["name"] in names:
@@ -75,6 +75,23 @@ def _validate_config(config):
             raise RuntimeError(
                 f"robots[{index}].pose is missing: {', '.join(sorted(missing_pose))}"
             )
+        if not isinstance(robot["referee"], dict):
+            raise RuntimeError(f"robots[{index}].referee must be a mapping")
+        missing_referee = {"max_hp", "heat_limit", "cooling_rate"} - robot["referee"].keys()
+        if missing_referee:
+            raise RuntimeError(
+                f"robots[{index}].referee is missing: "
+                f"{', '.join(sorted(missing_referee))}"
+            )
+        referee = robot["referee"]
+        if not isinstance(referee["max_hp"], int) or referee["max_hp"] <= 0:
+            raise RuntimeError(f"robots[{index}].referee.max_hp must be a positive integer")
+        for field in ("heat_limit", "cooling_rate"):
+            value = referee[field]
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= 0:
+                raise RuntimeError(
+                    f"robots[{index}].referee.{field} must be a positive number"
+                )
 
 
 def _spawn_robots(context: LaunchContext):
@@ -151,6 +168,31 @@ def _spawn_robots(context: LaunchContext):
                 ],
             )
         )
+
+    actions.append(
+        Node(
+            package="recruitment_sim_referee_system",
+            executable="referee_system",
+            name="referee_system",
+            output="screen",
+            parameters=[
+                {
+                    "use_sim_time": True,
+                    "robot_names": [robot["name"] for robot in config["robots"]],
+                    "robot_teams": [robot["color"] for robot in config["robots"]],
+                    "robot_max_hps": [robot["referee"]["max_hp"] for robot in config["robots"]],
+                    "robot_heat_limits": [
+                        float(robot["referee"]["heat_limit"]) for robot in config["robots"]
+                    ],
+                    "robot_cooling_rates": [
+                        float(robot["referee"]["cooling_rate"])
+                        for robot in config["robots"]
+                    ],
+                }
+            ],
+            arguments=["--ros-args", "--log-level", log_level],
+        )
+    )
 
     return actions
 

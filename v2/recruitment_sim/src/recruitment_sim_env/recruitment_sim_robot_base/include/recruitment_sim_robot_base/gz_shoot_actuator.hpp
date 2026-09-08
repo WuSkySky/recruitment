@@ -34,7 +34,10 @@ public:
   ~IgnShootActuator() {}
 
   void set(const bool & enabled) override;
-  void enable(bool enable) {enable_ = enable;}
+  void enable(bool enable);
+
+private:
+  void publish(bool enabled);
 
 private:
   std::shared_ptr<ignition::transport::Node> gz_node_;

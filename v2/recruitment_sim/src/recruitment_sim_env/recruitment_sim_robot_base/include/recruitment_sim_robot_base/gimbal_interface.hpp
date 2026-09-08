@@ -38,6 +38,7 @@ public:
     const std::string & gz_pitch_cmd_topic,
     const std::string & gz_yaw_cmd_topic,
     const std::string & gz_joint_state_topic);
+  void enable(bool enabled);
 
 private:
   void yaw_velocity_cb(const std_msgs::msg::Float64::SharedPtr msg);
@@ -69,6 +70,7 @@ private:
   double pitch_velocity_{0.0};
   bool has_yaw_feedback_{false};
   bool has_pitch_feedback_{false};
+  std::atomic<bool> enabled_{false};
 };
 
 }  // namespace recruitment_sim_robot_base

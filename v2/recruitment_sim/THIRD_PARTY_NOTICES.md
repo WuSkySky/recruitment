@@ -3,7 +3,7 @@
 本工作空间基于以下开源项目中的部分代码和资源进行适配。原文件中的版权声明继续保留：
 
 - `pb2025_robot_description`：机器人 XMacro、工业相机与 Mid360 资源；包元数据声明为 MIT。
-- `rmoss_gazebo`：Robot Base 与 Gazebo 插件；Apache-2.0，部分插件文件单独声明 MIT。
+- `rmoss_gazebo`：Robot Base、弹丸物理事件与 Gazebo 插件；Apache-2.0，部分插件文件单独声明 MIT。
 - `rmoss_gz_resources`：底盘、装甲、灯条、测速模块和弹丸资源；Apache-2.0。
 - `rmoss_interfaces`：控制消息定义；Apache-2.0。
 - `sdformat_tools`：SDF→URDF 转换代码；Apache-2.0。

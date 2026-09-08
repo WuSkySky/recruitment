@@ -6,6 +6,10 @@ robots:
   - name: red_infantry_robot
     type: pb2025_infantry_robot
     color: red
+    referee:
+      max_hp: 350
+      heat_limit: 88.0
+      cooling_rate: 24.0
     pose:
       x: -5.25
       y: 2.5
@@ -14,6 +18,10 @@ robots:
   - name: red_sentry_robot
     type: pb2025_sentry_robot
     color: red
+    referee:
+      max_hp: 400
+      heat_limit: 260.0
+      cooling_rate: 30.0
     pose:
       x: -5.25
       y: 3.5
@@ -24,6 +32,10 @@ robots:
   - name: blue_infantry_robot
     type: pb2025_infantry_robot
     color: blue
+    referee:
+      max_hp: 350
+      heat_limit: 88.0
+      cooling_rate: 24.0
     pose:
       x: 5.25
       y: -2.5
@@ -32,6 +44,10 @@ robots:
   - name: blue_sentry_robot
     type: pb2025_sentry_robot
     color: blue
+    referee:
+      max_hp: 400
+      heat_limit: 260.0
+      cooling_rate: 30.0
     pose:
       x: 5.25
       y: -3.5

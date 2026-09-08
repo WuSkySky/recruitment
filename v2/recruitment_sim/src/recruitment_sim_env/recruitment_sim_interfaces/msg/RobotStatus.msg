@@ -1,0 +1,13 @@
+std_msgs/Header header
+string robot_name
+int32 max_hp
+int32 current_hp
+float64 shooter_heat
+float64 heat_limit
+float64 cooling_rate
+uint32 shots_last_period
+uint64 total_shots
+uint64 total_hits
+bool alive
+bool shooter_overheated
+bool shooter_permanently_locked

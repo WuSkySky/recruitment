@@ -1,0 +1,10 @@
+uint8 ALL=0
+uint8 CHASSIS=1
+uint8 GIMBAL=2
+uint8 SHOOTER=3
+
+uint8 target
+bool enabled
+---
+bool success
+string message

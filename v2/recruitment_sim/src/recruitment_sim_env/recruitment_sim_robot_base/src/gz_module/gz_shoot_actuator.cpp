@@ -37,6 +37,19 @@ void IgnShootActuator::set(const bool & enabled)
   if (!enable_) {
     return;
   }
+  publish(enabled);
+}
+
+void IgnShootActuator::enable(bool enable)
+{
+  enable_ = enable;
+  if (!enable_) {
+    publish(false);
+  }
+}
+
+void IgnShootActuator::publish(bool enabled)
+{
   ignition::msgs::Boolean gz_msg;
   gz_msg.set_data(enabled);
   gz_shoot_cmd_pub_->Publish(gz_msg);

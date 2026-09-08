@@ -22,12 +22,14 @@
 #include "recruitment_sim_robot_base/gz_shoot_actuator.hpp"
 #include "recruitment_sim_robot_base/gz_odometry.hpp"
 #include "recruitment_sim_robot_base/gz_light_bar_cmd.hpp"
+#include "recruitment_sim_robot_base/enable_state.hpp"
 
 #include "recruitment_sim_robot_base/chassis_controller.hpp"
 #include "recruitment_sim_robot_base/gimbal_interface.hpp"
 #include "recruitment_sim_robot_base/shooter_controller.hpp"
 #include "recruitment_sim_robot_base/odometry_publisher.hpp"
 #include "recruitment_sim_interfaces/srv/set_light_color.hpp"
+#include "recruitment_sim_interfaces/srv/set_robot_enabled.hpp"
 
 namespace recruitment_sim_robot_base
 {
@@ -46,11 +48,17 @@ public:
   void set_light_color_cb(
     const std::shared_ptr<recruitment_sim_interfaces::srv::SetLightColor::Request> request,
     std::shared_ptr<recruitment_sim_interfaces::srv::SetLightColor::Response> response);
+  void set_robot_enabled_cb(
+    const std::shared_ptr<recruitment_sim_interfaces::srv::SetRobotEnabled::Request> request,
+    std::shared_ptr<recruitment_sim_interfaces::srv::SetRobotEnabled::Response> response);
 
 private:
+  void apply_enabled_state();
+
   rclcpp::Node::SharedPtr node_;
   std::shared_ptr<ignition::transport::Node> gz_node_;
   rclcpp::Service<recruitment_sim_interfaces::srv::SetLightColor>::SharedPtr light_color_service_;
+  rclcpp::Service<recruitment_sim_interfaces::srv::SetRobotEnabled>::SharedPtr enabled_service_;
   // ign actuator moudule
   std::shared_ptr<recruitment_sim_robot_base::IgnChassisActuator> chassis_actuator_;
   std::shared_ptr<recruitment_sim_robot_base::IgnShootActuator> shoot_actuator_;
@@ -62,6 +70,7 @@ private:
   std::shared_ptr<recruitment_sim_robot_base::GimbalInterface> gimbal_interface_;
   std::shared_ptr<recruitment_sim_robot_base::ShooterController> shooter_controller_;
   std::shared_ptr<recruitment_sim_robot_base::OdometryPublisher> odometry_publisher_;
+  EnableState enable_state_;
 };
 
 }  // namespace recruitment_sim_robot_base

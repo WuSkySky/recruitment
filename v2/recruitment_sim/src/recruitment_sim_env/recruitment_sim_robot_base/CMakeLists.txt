@@ -64,6 +64,12 @@ install(PROGRAMS
   DESTINATION lib/${PROJECT_NAME}
 )
 
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_enable_state test/test_enable_state.cpp)
+  target_include_directories(test_enable_state PRIVATE include)
+endif()
+
 ament_export_targets(${PROJECT_NAME} HAS_LIBRARY_TARGET)
 ament_export_dependencies(
   geometry_msgs nav_msgs rclcpp rclcpp_components

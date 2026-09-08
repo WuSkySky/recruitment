@@ -22,8 +22,10 @@
 #include <ignition/plugin/Register.hh>
 #include <ignition/transport/Node.hh>
 #include <ignition/msgs/boolean.pb.h>
+#include <ignition/msgs/stringmsg.pb.h>
 
 #include "ignition/gazebo/components/ContactSensorData.hh"
+#include "ignition/gazebo/components/Model.hh"
 #include "ignition/gazebo/components/Name.hh"
 #include "ignition/gazebo/components/ParentEntity.hh"
 #include <ignition/gazebo/components/LinearVelocityCmd.hh>
@@ -51,19 +53,17 @@ using namespace systems;
 struct ProjectileInfo {
     Entity entity;
     std::string name;
+    unsigned int id;
     std::chrono::steady_clock::duration spawnTime;
     bool isInit;
     bool remove{false};
-    ProjectileInfo(Entity _entity, std::string _name, 
+    ProjectileInfo(Entity _entity, std::string _name, unsigned int _id,
                     std::chrono::steady_clock::duration _time)
         : entity(_entity)
         , name(_name)
+        , id(_id)
         , spawnTime(_time)
         , isInit(false)
-    {
-    }
-    ProjectileInfo()
-        : isInit(false)
     {
     }
 };
@@ -73,9 +73,18 @@ public:
     void OnCmd(const ignition::msgs::Boolean& _msg);
     void PreUpdate(const ignition::gazebo::UpdateInfo& _info, 
                     ignition::gazebo::EntityComponentManager& _ecm);
+    void PublishShotInfo(
+        const ignition::gazebo::UpdateInfo& _info, const ProjectileInfo& _projectile);
+    void PublishHitInfo(
+        const ignition::gazebo::UpdateInfo& _info,
+        ignition::gazebo::EntityComponentManager& _ecm,
+        const ProjectileInfo& _projectile,
+        Entity _targetCollision);
 public:
     // node and tool
     transport::Node node;
+    transport::Node::Publisher shotInfoPub;
+    transport::Node::Publisher hitInfoPub;
     std::unique_ptr<SdfEntityCreator> creator { nullptr };
     bool initialized { false };
     // entity: world,model, shooter link
@@ -161,6 +170,10 @@ void ProjectileShooter::Configure(const Entity& _entity,
     // Subscribe to commands
     std::string shootCmdTopic { this->dataPtr->modelName + "/" + this->dataPtr->shooterName + "/shoot" };
     this->dataPtr->node.Subscribe(shootCmdTopic, &ProjectileShooterPrivate::OnCmd, this->dataPtr.get());
+    this->dataPtr->shotInfoPub =
+        this->dataPtr->node.Advertise<msgs::StringMsg>("/referee_system/events/shot");
+    this->dataPtr->hitInfoPub =
+        this->dataPtr->node.Advertise<msgs::StringMsg>("/referee_system/events/hit");
     //creator and world
     this->dataPtr->creator = std::make_unique<SdfEntityCreator>(_ecm, _eventMgr);
     this->dataPtr->world = _ecm.EntityByComponents(components::World());
@@ -226,8 +239,10 @@ void ProjectileShooterPrivate::PreUpdate(const ignition::gazebo::UpdateInfo& _in
         Entity projectileCollision = Link(projectileLink).Collisions(_ecm)[0];
         _ecm.CreateComponent(projectileCollision, components::ContactSensorData());
         // update projectile tracking
-        ProjectileInfo pInfo(projectileModel, projectileName, _info.simTime);
+        ProjectileInfo pInfo(
+            projectileModel, projectileName, this->projectileId, _info.simTime);
         this->spawnedProjectiles.push_back(pInfo);
+        this->PublishShotInfo(_info, pInfo);
         this->projectileId++;
     } else {
         //try to init the last projectile
@@ -250,11 +265,14 @@ void ProjectileShooterPrivate::PreUpdate(const ignition::gazebo::UpdateInfo& _in
             Entity link = Model(pInfo.entity).Links(_ecm)[0];
             Entity collision = Link(link).Collisions(_ecm)[0];
             auto contacts = _ecm.Component<components::ContactSensorData>(collision)->Data();
-            if (contacts.contact_size() > 0) {
-                //ignmsg << "ProjectileShooter contact_size: [" << contacts.contact_size() << "]" << std::endl;
-            }
             double t = std::chrono::duration_cast<std::chrono::milliseconds>(_info.simTime - pInfo.spawnTime).count();
             if (contacts.contact_size() > 0 || t > 4000) {
+                if (contacts.contact_size() > 0) {
+                    Entity collision1 = contacts.contact(0).collision1().id();
+                    Entity collision2 = contacts.contact(0).collision2().id();
+                    Entity targetCollision = collision == collision1 ? collision2 : collision1;
+                    this->PublishHitInfo(_info, _ecm, pInfo, targetCollision);
+                }
                 this->creator->RequestRemoveEntity(pInfo.entity);
                 pInfo.remove = true;
             }
@@ -262,6 +280,58 @@ void ProjectileShooterPrivate::PreUpdate(const ignition::gazebo::UpdateInfo& _in
         // remove from list
         spawnedProjectiles.remove_if([](const ProjectileInfo& pInfo){ return pInfo.remove; });
     }
+}
+
+void ProjectileShooterPrivate::PublishShotInfo(
+    const ignition::gazebo::UpdateInfo& _info, const ProjectileInfo& _projectile)
+{
+    std::ostringstream stream;
+    stream << this->modelName << ',' << this->shooterName << ',' << _projectile.id << ",17mm";
+    msgs::StringMsg msg;
+    msg.mutable_header()->mutable_stamp()->CopyFrom(convert<msgs::Time>(_info.simTime));
+    msg.set_data(stream.str());
+    this->shotInfoPub.Publish(msg);
+}
+
+void ProjectileShooterPrivate::PublishHitInfo(
+    const ignition::gazebo::UpdateInfo& _info,
+    ignition::gazebo::EntityComponentManager& _ecm,
+    const ProjectileInfo& _projectile,
+    Entity _targetCollision)
+{
+    const auto collisionName = _ecm.Component<components::Name>(_targetCollision);
+    const auto collisionParent = _ecm.Component<components::ParentEntity>(_targetCollision);
+    if (!collisionName || !collisionParent) {
+        return;
+    }
+
+    const Entity targetLink = collisionParent->Data();
+    const auto linkName = _ecm.Component<components::Name>(targetLink);
+    const auto linkParent = _ecm.Component<components::ParentEntity>(targetLink);
+    if (!linkName || !linkParent) {
+        return;
+    }
+
+    Entity targetModel = linkParent->Data();
+    while (targetModel != kNullEntity && !_ecm.Component<components::Model>(targetModel)) {
+        const auto parent = _ecm.Component<components::ParentEntity>(targetModel);
+        if (!parent) {
+            return;
+        }
+        targetModel = parent->Data();
+    }
+    const auto modelName = _ecm.Component<components::Name>(targetModel);
+    if (!modelName) {
+        return;
+    }
+
+    std::ostringstream stream;
+    stream << this->modelName << ',' << this->shooterName << ',' << _projectile.id << ','
+           << modelName->Data() << ',' << linkName->Data() << ',' << collisionName->Data();
+    msgs::StringMsg msg;
+    msg.mutable_header()->mutable_stamp()->CopyFrom(convert<msgs::Time>(_info.simTime));
+    msg.set_data(stream.str());
+    this->hitInfoPub.Publish(msg);
 }
 
 /******************register*************************************************/

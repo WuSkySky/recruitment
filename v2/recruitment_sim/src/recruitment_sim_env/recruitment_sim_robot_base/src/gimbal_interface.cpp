@@ -72,12 +72,28 @@ GimbalInterface::GimbalInterface(
 
 void GimbalInterface::yaw_velocity_cb(const std_msgs::msg::Float64::SharedPtr msg)
 {
+  if (!enabled_.load()) {
+    return;
+  }
   yaw_velocity_command_.store(msg->data);
 }
 
 void GimbalInterface::pitch_velocity_cb(const std_msgs::msg::Float64::SharedPtr msg)
 {
+  if (!enabled_.load()) {
+    return;
+  }
   pitch_velocity_command_.store(msg->data);
+}
+
+void GimbalInterface::enable(bool enabled)
+{
+  enabled_.store(enabled);
+  if (!enabled) {
+    yaw_velocity_command_.store(0.0);
+    pitch_velocity_command_.store(0.0);
+    publish_commands();
+  }
 }
 
 void GimbalInterface::publish_commands()

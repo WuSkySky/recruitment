@@ -35,7 +35,7 @@ public:
   ~IgnChassisActuator() {}
 
   void set(const geometry_msgs::msg::Twist & data) override;
-  void enable(bool enable) {enable_ = enable;}
+  void enable(bool enable);
 
 private:
   rclcpp::Node::SharedPtr node_;

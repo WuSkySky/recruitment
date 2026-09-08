@@ -42,4 +42,13 @@ void IgnChassisActuator::set(const geometry_msgs::msg::Twist & data)
   gz_cmd_vel_pub_->Publish(gz_msg);
 }
 
+void IgnChassisActuator::enable(bool enable)
+{
+  enable_ = enable;
+  if (!enable_) {
+    ignition::msgs::Twist stop;
+    gz_cmd_vel_pub_->Publish(stop);
+  }
+}
+
 }  // namespace recruitment_sim_robot_base

@@ -68,9 +68,16 @@ RobotBaseNode::RobotBaseNode(const rclcpp::NodeOptions & options)
     std::bind(
       &RobotBaseNode::set_light_color_cb, this,
       std::placeholders::_1, std::placeholders::_2));
-  // enable actuator and sensor
-  chassis_actuator_->enable(true);
-  shoot_actuator_->enable(true);
+  const std::string enabled_service_name =
+    "/referee_system/" + robot_name + "/set_enabled";
+  enabled_service_ = node_->create_service<recruitment_sim_interfaces::srv::SetRobotEnabled>(
+    enabled_service_name,
+    std::bind(
+      &RobotBaseNode::set_robot_enabled_cb, this,
+      std::placeholders::_1, std::placeholders::_2));
+  // Enable actuators and sensors. Sensor reporting deliberately remains independent from
+  // referee power state so a disabled robot is still observable.
+  apply_enabled_state();
   if (use_odometry) {
     gz_chassis_odometry_->enable(true);
   }
@@ -88,6 +95,28 @@ void RobotBaseNode::set_light_color_cb(
   gz_light_bar_cmd_->set_state(request->color);
   response->success = true;
   response->message = "light color updated";
+}
+
+void RobotBaseNode::set_robot_enabled_cb(
+  const std::shared_ptr<recruitment_sim_interfaces::srv::SetRobotEnabled::Request> request,
+  std::shared_ptr<recruitment_sim_interfaces::srv::SetRobotEnabled::Response> response)
+{
+  if (!enable_state_.set(request->target, request->enabled)) {
+    response->success = false;
+    response->message = "unknown enable target";
+    return;
+  }
+
+  apply_enabled_state();
+  response->success = true;
+  response->message = request->enabled ? "target enabled" : "target disabled";
+}
+
+void RobotBaseNode::apply_enabled_state()
+{
+  chassis_actuator_->enable(enable_state_.chassis_enabled());
+  gimbal_interface_->enable(enable_state_.gimbal_enabled());
+  shoot_actuator_->enable(enable_state_.shooter_enabled());
 }
 
 }  // namespace recruitment_sim_robot_base
