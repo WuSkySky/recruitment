@@ -15,7 +15,7 @@ find_package(rclcpp REQUIRED)
 find_package(recruitment_sim_interfaces REQUIRED)
 find_package(std_msgs REQUIRED)
 
-add_library(${PROJECT_NAME}_engine src/referee_engine.cpp)
+add_library(${PROJECT_NAME}_engine src/referee_engine.cpp src/match_engine.cpp)
 target_include_directories(${PROJECT_NAME}_engine PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
@@ -49,6 +49,9 @@ if(BUILD_TESTING)
   ament_add_gtest(test_referee_engine test/test_referee_engine.cpp)
   target_link_libraries(test_referee_engine ${PROJECT_NAME}_engine)
   target_include_directories(test_referee_engine PRIVATE include)
+  ament_add_gtest(test_match_engine test/test_match_engine.cpp)
+  target_link_libraries(test_match_engine ${PROJECT_NAME}_engine)
+  target_include_directories(test_match_engine PRIVATE include)
 endif()
 
 ament_export_targets(${PROJECT_NAME}_engine HAS_LIBRARY_TARGET)

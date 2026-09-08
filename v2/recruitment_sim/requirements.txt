@@ -1,1 +1,4 @@
 xmacro==1.2.1
+aiohttp>=3.8,<4
+aiortc>=1.9,<2
+av>=12,<17

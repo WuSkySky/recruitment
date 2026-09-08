@@ -8,6 +8,10 @@
 - `rmoss_interfaces`：控制消息定义；Apache-2.0。
 - `sdformat_tools`：SDF→URDF 转换代码；Apache-2.0。
 - `xmacro`：运行时 Python 依赖；MIT。
+- `aiohttp`：选手端 HTTP/WebSocket 服务；Apache-2.0。
+- `aiortc`：选手端 WebRTC 实现；BSD-3-Clause。
+- `PyAV`：FFmpeg 的 Python 绑定，用于视频帧编码；BSD-3-Clause。
+- `Vue.js`、`Vite`：选手端页面框架与构建工具；MIT。
 - `ROS2_RM_Navigation` / `pb_rm_simulation`：RMUL 2026 3V3 场地 SDF 与网格；MIT，Copyright (c) 2026 MY_nav Contributors。
 
 完整 Apache 2.0 文本保存在 `LICENSES/Apache-2.0.txt`，MIT 文本保存在

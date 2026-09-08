@@ -1,4 +1,6 @@
 world_name: default
+control_zone:
+  bounds: [-1.5, 1.5, -1.5, 1.5]
 robots:
   # Red start zone: x in [-6.0, -4.5], y in [2.0, 4.0].
   # Both robots are centered on the 1.5 m short side (x = -5.25) and

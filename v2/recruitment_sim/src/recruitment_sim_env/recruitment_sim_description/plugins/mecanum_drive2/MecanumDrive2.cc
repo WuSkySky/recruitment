@@ -32,6 +32,7 @@
 #include <ignition/math/PID.hh>
 
 #include "MecanumDrive2.hh"
+#include "../referee_simulation/EventBus.hh"
 
 #define WHEEL_NUM 4
 using namespace ignition;
@@ -82,6 +83,7 @@ public:
     //velocity cmd
     msgs::Twist targetVel;
     std::mutex targetVelMutex;
+    uint64_t roundId{0};
 };
 
 /******************implementation for MecanumDrive2************************/
@@ -138,6 +140,19 @@ void MecanumDrive2::Configure(const Entity &_entity,
 void MecanumDrive2::PreUpdate(const ignition::gazebo::UpdateInfo &_info,
                              ignition::gazebo::EntityComponentManager &_ecm)
 {
+    const auto currentRound = recruitment_sim::Round();
+    if (currentRound != this->dataPtr->roundId) {
+        std::lock_guard<std::mutex> lock(this->dataPtr->targetVelMutex);
+        this->dataPtr->roundId = currentRound;
+        this->dataPtr->targetVel.Clear();
+        this->dataPtr->xPid.Reset();
+        this->dataPtr->yPid.Reset();
+        this->dataPtr->wPid.Reset();
+        this->dataPtr->initFlag = false;
+    }
+    if (_info.paused) {
+        return;
+    }
     //control for chassis
     Link chassisLink(this->dataPtr->chassisLink);
     if (!_ecm.Component<components::WorldPose>(this->dataPtr->chassisLink))

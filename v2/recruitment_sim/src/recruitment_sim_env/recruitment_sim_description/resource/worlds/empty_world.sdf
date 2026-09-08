@@ -1,6 +1,7 @@
 <?xml version="1.0" ?>
 <sdf version="1.7">
-    <world name="default">
+  <world name="default">
+    <plugin filename="libRecruitmentSimRefereeSimulation.so" name="recruitment_sim::RefereeSimulation"/>
         <!-- Physics -->
         <plugin
             filename="libignition-gazebo-physics-system.so"

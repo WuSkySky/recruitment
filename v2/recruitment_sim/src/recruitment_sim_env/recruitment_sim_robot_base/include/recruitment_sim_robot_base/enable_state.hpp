@@ -34,6 +34,13 @@ public:
   bool chassis_enabled() const {return all_enabled_ && chassis_enabled_;}
   bool gimbal_enabled() const {return all_enabled_ && gimbal_enabled_;}
   bool shooter_enabled() const {return all_enabled_ && shooter_enabled_;}
+  void reset(bool enabled = true)
+  {
+    all_enabled_ = enabled;
+    chassis_enabled_ = true;
+    gimbal_enabled_ = true;
+    shooter_enabled_ = true;
+  }
 
 private:
   bool all_enabled_{true};

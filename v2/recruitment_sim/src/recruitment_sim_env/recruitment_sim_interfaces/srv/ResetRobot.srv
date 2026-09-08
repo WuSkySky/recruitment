@@ -1,0 +1,6 @@
+# Internal lifecycle barrier. Reject older generations; stop and clear commands.
+uint64 round_id
+bool enabled
+---
+bool success
+string message

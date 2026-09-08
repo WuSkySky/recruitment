@@ -15,6 +15,8 @@
 #include <mutex>
 #include <list>
 #include <sstream>
+#include <iomanip>
+#include "../referee_simulation/EventBus.hh"
 
 #include <ignition/common/Profiler.hh>
 #include <ignition/common/SystemPaths.hh>
@@ -104,6 +106,7 @@ public:
     std::mutex shootStateMutex;
     std::list<ProjectileInfo> spawnedProjectiles;
     std::chrono::steady_clock::duration lastSpawnTime;
+    uint64_t roundId{0};
 };
 
 /******************implementation for ProjectileShooter************************/
@@ -178,6 +181,7 @@ void ProjectileShooter::Configure(const Entity& _entity,
     this->dataPtr->creator = std::make_unique<SdfEntityCreator>(_ecm, _eventMgr);
     this->dataPtr->world = _ecm.EntityByComponents(components::World());
     this->dataPtr->initialized = true;
+    recruitment_sim::RegisterShooter(_entity);
     //debug info
     igndbg << "[" << this->dataPtr->modelName << " ProjectileShooter Info]:" << std::endl;
     igndbg << "Shooter name: " << this->dataPtr->shooterName << std::endl;
@@ -203,6 +207,15 @@ void ProjectileShooterPrivate::OnCmd(const ignition::msgs::Boolean& _msg)
 
 void ProjectileShooterPrivate::PreUpdate(const ignition::gazebo::UpdateInfo& _info, ignition::gazebo::EntityComponentManager& _ecm)
 {
+    const auto currentRound = recruitment_sim::Round();
+    if (currentRound != this->roundId) {
+        std::lock_guard<std::mutex> lock(this->shootStateMutex);
+        this->roundId = currentRound;
+        this->shootEnabled = false;
+        this->projectileId = 0;
+        this->spawnedProjectiles.clear();
+        this->lastSpawnTime = _info.simTime;
+    }
     // do nothing if it's paused or not initialized.
     if (_info.paused || !this->initialized) {
         return;
@@ -232,6 +245,7 @@ void ProjectileShooterPrivate::PreUpdate(const ignition::gazebo::UpdateInfo& _in
         this->projectileSdfModel.SetRawPose(shooterPose * this->shooterOffset);
         Entity projectileModel = this->creator->CreateEntities(&this->projectileSdfModel);
         this->creator->SetParent(projectileModel, this->world);
+        recruitment_sim::RegisterProjectile(projectileModel);
         //update projectile,set velocity and create ContactSensorData
         math::Vector3d tmpVel(this->shootVel, 0, 0);
         _ecm.CreateComponent(projectileModel, components::LinearVelocityCmd({ tmpVel }));
@@ -274,6 +288,7 @@ void ProjectileShooterPrivate::PreUpdate(const ignition::gazebo::UpdateInfo& _in
                     this->PublishHitInfo(_info, _ecm, pInfo, targetCollision);
                 }
                 this->creator->RequestRemoveEntity(pInfo.entity);
+                recruitment_sim::ForgetProjectile(pInfo.entity);
                 pInfo.remove = true;
             }
         }
@@ -290,7 +305,12 @@ void ProjectileShooterPrivate::PublishShotInfo(
     msgs::StringMsg msg;
     msg.mutable_header()->mutable_stamp()->CopyFrom(convert<msgs::Time>(_info.simTime));
     msg.set_data(stream.str());
+    auto * round = msg.mutable_header()->add_data();
+    round->set_key("round_id"); round->add_value(std::to_string(recruitment_sim::Round()));
     this->shotInfoPub.Publish(msg);
+    std::ostringstream event;
+    event << "S " << std::quoted(this->modelName) << ' ' << _projectile.id;
+    recruitment_sim::RecordEvent(event.str());
 }
 
 void ProjectileShooterPrivate::PublishHitInfo(
@@ -331,7 +351,14 @@ void ProjectileShooterPrivate::PublishHitInfo(
     msgs::StringMsg msg;
     msg.mutable_header()->mutable_stamp()->CopyFrom(convert<msgs::Time>(_info.simTime));
     msg.set_data(stream.str());
+    auto * round = msg.mutable_header()->add_data();
+    round->set_key("round_id"); round->add_value(std::to_string(recruitment_sim::Round()));
     this->hitInfoPub.Publish(msg);
+    std::ostringstream event;
+    event << "H " << std::quoted(this->modelName) << ' ' << _projectile.id << ' '
+          << std::quoted(modelName->Data()) << ' ' << std::quoted(linkName->Data()) << ' '
+          << std::quoted(collisionName->Data());
+    recruitment_sim::RecordEvent(event.str());
 }
 
 /******************register*************************************************/

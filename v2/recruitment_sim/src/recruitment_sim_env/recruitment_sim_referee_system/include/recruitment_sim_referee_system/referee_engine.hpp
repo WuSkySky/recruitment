@@ -28,6 +28,7 @@ struct RobotState
   std::uint32_t shots_last_period{0};
   std::uint64_t total_shots{0};
   std::uint64_t total_hits{0};
+  std::uint64_t attack_damage{0};
   bool alive{true};
   bool overheated{false};
   bool permanently_locked{false};

@@ -1,0 +1,11 @@
+std_msgs/Header header
+uint32 sequence
+bool active
+float32 mouse_dx
+float32 mouse_dy
+bool key_w
+bool key_a
+bool key_s
+bool key_d
+bool left_button
+bool right_button

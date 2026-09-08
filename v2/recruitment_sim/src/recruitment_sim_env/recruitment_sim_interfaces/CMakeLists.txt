@@ -7,6 +7,10 @@ find_package(std_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/RobotStatus.msg"
+  "msg/MatchStatus.msg"
+  "msg/PlayerInput.msg"
+  "srv/ControlMatch.srv"
+  "srv/ResetRobot.srv"
   "srv/SetRobotEnabled.srv"
   "srv/SetLightColor.srv"
   DEPENDENCIES std_msgs

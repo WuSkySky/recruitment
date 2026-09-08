@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import os
+import xml.etree.ElementTree as ET
+from typing import List
 
 import yaml
 from ament_index_python.packages import get_package_share_directory
@@ -10,6 +12,7 @@ from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from xmacro.xmacro4sdf import XMLMacro4sdf
 
 
@@ -48,6 +51,18 @@ def _validate_config(config):
         raise RuntimeError("robots config must contain a 'robots' list")
     if not config["robots"]:
         raise RuntimeError("robots config must contain at least one robot")
+    zone = config.get("control_zone", {})
+    if not isinstance(zone, dict):
+        raise RuntimeError("control_zone must be a mapping")
+    bounds = zone.get("bounds", [-1.5, 1.5, -1.5, 1.5])
+    if (
+        not isinstance(bounds, list)
+        or len(bounds) != 4
+        or any(not isinstance(v, (int, float)) or isinstance(v, bool) for v in bounds)
+        or bounds[0] >= bounds[1]
+        or bounds[2] >= bounds[3]
+    ):
+        raise RuntimeError("control_zone.bounds must be [min_x, max_x, min_y, max_y]")
 
     names = set()
     namespaces = set()
@@ -107,6 +122,7 @@ def _spawn_robots(context: LaunchContext):
     base_params = os.path.join(bringup_share, "config", "base_params.yaml")
 
     actions = []
+    model_sdfs = []
     for robot in config["robots"]:
         robot_name = robot["name"]
         robot_type = robot["type"]
@@ -120,6 +136,14 @@ def _spawn_robots(context: LaunchContext):
         xmacro.set_xml_file(xmacro_path)
         xmacro.generate({"global_initial_color": robot["color"]})
         robot_sdf = xmacro.to_string()
+        root = ET.fromstring(robot_sdf)
+        model = root.find("model")
+        model.set("name", robot_name)
+        model_pose = model.find("pose")
+        if model_pose is None:
+            model_pose = ET.SubElement(model, "pose")
+        model_pose.text = f"{pose['x']} {pose['y']} {pose['z']} 0 0 {pose['yaw']}"
+        model_sdfs.append(ET.tostring(root, encoding="unicode"))
 
         actions.append(
             Node(
@@ -178,6 +202,9 @@ def _spawn_robots(context: LaunchContext):
             parameters=[
                 {
                     "use_sim_time": True,
+                    "robot_sdfs": ParameterValue(model_sdfs, value_type=List[str]),
+                    "zone_enabled": os.path.basename(LaunchConfiguration("world_file").perform(context)) != "empty_world.sdf",
+                    "zone_bounds": [float(v) for v in config.get("control_zone", {}).get("bounds", [-1.5, 1.5, -1.5, 1.5])],
                     "robot_names": [robot["name"] for robot in config["robots"]],
                     "robot_teams": [robot["color"] for robot in config["robots"]],
                     "robot_max_hps": [robot["referee"]["max_hp"] for robot in config["robots"]],
@@ -210,6 +237,7 @@ def generate_launch_description():
     world_file = LaunchConfiguration("world_file")
     gui = LaunchConfiguration("gui")
     use_rviz = LaunchConfiguration("rviz")
+    use_player_web = LaunchConfiguration("player_web")
 
     gz_launch_path = os.path.join(ros_gz_share, "launch", "gz_sim.launch.py")
     gazebo_gui = IncludeLaunchDescription(
@@ -230,6 +258,9 @@ def generate_launch_description():
             DeclareLaunchArgument("gui", default_value="true"),
             DeclareLaunchArgument("rviz", default_value="false"),
             DeclareLaunchArgument("rviz_config", default_value=default_rviz),
+            DeclareLaunchArgument("player_web", default_value="false"),
+            DeclareLaunchArgument("player_team", default_value="red"),
+            DeclareLaunchArgument("player_web_port", default_value="8080"),
             DeclareLaunchArgument("log_level", default_value="info"),
             gazebo_gui,
             gazebo_headless,
@@ -246,6 +277,23 @@ def generate_launch_description():
                 condition=IfCondition(use_rviz),
                 arguments=["-d", LaunchConfiguration("rviz_config")],
                 output="screen",
+            ),
+            Node(
+                package="recruitment_sim_player_web",
+                executable="player_web",
+                name="player_web",
+                condition=IfCondition(use_player_web),
+                output="screen",
+                parameters=[
+                    {
+                        "robots_file": LaunchConfiguration("robots_file"),
+                        "player_team": LaunchConfiguration("player_team"),
+                        "port": ParameterValue(
+                            LaunchConfiguration("player_web_port"), value_type=int
+                        ),
+                    }
+                ],
+                arguments=["--ros-args", "--log-level", LaunchConfiguration("log_level")],
             ),
         ]
     )

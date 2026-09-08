@@ -1,6 +1,7 @@
 #include "recruitment_sim_referee_system/referee_engine.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <stdexcept>
 #include <utility>
 
@@ -23,6 +24,7 @@ RefereeEngine::RefereeEngine(const std::vector<RobotConfig> & configs)
 {
   for (const auto & config : configs) {
     if (config.name.empty() || config.team.empty() || config.max_hp <= 0 ||
+      !std::isfinite(config.heat_limit) || !std::isfinite(config.cooling_rate) ||
       config.heat_limit <= 0.0 || config.cooling_rate <= 0.0)
     {
       throw std::invalid_argument("invalid robot referee configuration");
@@ -84,6 +86,7 @@ bool RefereeEngine::process_hit(const HitEvent & event)
   armor_last_hit_ns_[armor] = event.stamp_ns;
   ++shooter_it->second.total_hits;
   auto & target = target_it->second;
+  shooter_it->second.attack_damage += std::min(target.current_hp, kDamagePer17mmProjectile);
   target.current_hp = std::max(0, target.current_hp - kDamagePer17mmProjectile);
   if (target.current_hp == 0 && target.alive) {
     target.alive = false;

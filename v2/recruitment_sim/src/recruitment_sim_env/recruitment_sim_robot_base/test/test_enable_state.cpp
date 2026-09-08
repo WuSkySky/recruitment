@@ -38,3 +38,18 @@ TEST(EnableState, RejectsUnknownTargetWithoutChangingState)
   EXPECT_TRUE(state.gimbal_enabled());
   EXPECT_TRUE(state.shooter_enabled());
 }
+
+TEST(EnableState, ResetClearsComponentLocksAndSetsGlobalState)
+{
+  base::EnableState state;
+  state.set(base::EnableState::SHOOTER, false);
+  state.set(base::EnableState::CHASSIS, false);
+  state.reset(true);
+  EXPECT_TRUE(state.chassis_enabled());
+  EXPECT_TRUE(state.gimbal_enabled());
+  EXPECT_TRUE(state.shooter_enabled());
+  state.reset(false);
+  EXPECT_FALSE(state.chassis_enabled());
+  EXPECT_FALSE(state.gimbal_enabled());
+  EXPECT_FALSE(state.shooter_enabled());
+}

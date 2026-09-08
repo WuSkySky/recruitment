@@ -12,10 +12,18 @@ find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
 find_package(ignition-gazebo6 REQUIRED)
 
+add_library(RecruitmentSimEventBus SHARED plugins/referee_simulation/EventBus.cc)
+add_library(RecruitmentSimRefereeSimulation SHARED plugins/referee_simulation/RefereeSimulation.cc)
+target_link_libraries(RecruitmentSimRefereeSimulation RecruitmentSimEventBus ignition-gazebo6::ignition-gazebo6)
+# Both loaded systems must resolve the same event bus, including from an installed workspace.
+set(CMAKE_INSTALL_RPATH "$ORIGIN")
+set_target_properties(RecruitmentSimRefereeSimulation PROPERTIES INSTALL_RPATH "$ORIGIN")
+
 add_library(RecruitmentSimMecanumDrive SHARED
   plugins/mecanum_drive2/MecanumDrive2.cc
 )
 target_link_libraries(RecruitmentSimMecanumDrive
+  RecruitmentSimEventBus
   ignition-gazebo6::ignition-gazebo6
 )
 
@@ -23,6 +31,7 @@ add_library(RecruitmentSimProjectileShooter SHARED
   plugins/projectile_shooter/ProjectileShooter.cc
 )
 target_link_libraries(RecruitmentSimProjectileShooter
+  RecruitmentSimEventBus
   ignition-gazebo6::ignition-gazebo6
 )
 
@@ -34,6 +43,8 @@ target_link_libraries(RecruitmentSimLightBarController
 )
 
 install(TARGETS
+  RecruitmentSimEventBus
+  RecruitmentSimRefereeSimulation
   RecruitmentSimMecanumDrive
   RecruitmentSimProjectileShooter
   RecruitmentSimLightBarController

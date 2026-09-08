@@ -30,6 +30,7 @@
 #include "recruitment_sim_robot_base/odometry_publisher.hpp"
 #include "recruitment_sim_interfaces/srv/set_light_color.hpp"
 #include "recruitment_sim_interfaces/srv/set_robot_enabled.hpp"
+#include "recruitment_sim_interfaces/srv/reset_robot.hpp"
 
 namespace recruitment_sim_robot_base
 {
@@ -71,6 +72,8 @@ private:
   std::shared_ptr<recruitment_sim_robot_base::ShooterController> shooter_controller_;
   std::shared_ptr<recruitment_sim_robot_base::OdometryPublisher> odometry_publisher_;
   EnableState enable_state_;
+  uint64_t round_id_{0};
+  rclcpp::Service<recruitment_sim_interfaces::srv::ResetRobot>::SharedPtr reset_service_;
 };
 
 }  // namespace recruitment_sim_robot_base

@@ -76,6 +76,24 @@ RobotBaseNode::RobotBaseNode(const rclcpp::NodeOptions & options)
       &RobotBaseNode::set_robot_enabled_cb, this,
       std::placeholders::_1, std::placeholders::_2));
   // Enable actuators and sensors. Sensor reporting deliberately remains independent from
+  reset_service_ = node_->create_service<recruitment_sim_interfaces::srv::ResetRobot>(
+    "/referee_system/" + robot_name + "/reset",
+    [this](const std::shared_ptr<recruitment_sim_interfaces::srv::ResetRobot::Request> req,
+    std::shared_ptr<recruitment_sim_interfaces::srv::ResetRobot::Response> res) {
+      if (req->round_id < round_id_) {
+        res->success = false;
+        res->message = "stale round";
+        return;
+      }
+      round_id_ = req->round_id;
+      enable_state_.set(EnableState::ALL, false);
+      apply_enabled_state();  // Clears gimbal targets and emits zero/stop commands.
+      enable_state_.reset(req->enabled);
+      apply_enabled_state();
+      res->success = true;
+      res->message = "control state reset";
+    });
+  // Enable actuators and sensors. Sensor reporting deliberately remains independent from
   // referee power state so a disabled robot is still observable.
   apply_enabled_state();
   if (use_odometry) {
@@ -101,6 +119,11 @@ void RobotBaseNode::set_robot_enabled_cb(
   const std::shared_ptr<recruitment_sim_interfaces::srv::SetRobotEnabled::Request> request,
   std::shared_ptr<recruitment_sim_interfaces::srv::SetRobotEnabled::Response> response)
 {
+  if (request->round_id != 0 && request->round_id != round_id_) {
+    response->success = false;
+    response->message = "stale round";
+    return;
+  }
   if (!enable_state_.set(request->target, request->enabled)) {
     response->success = false;
     response->message = "unknown enable target";

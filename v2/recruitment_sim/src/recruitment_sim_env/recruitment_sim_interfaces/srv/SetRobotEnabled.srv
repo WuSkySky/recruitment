@@ -5,6 +5,8 @@ uint8 SHOOTER=3
 
 uint8 target
 bool enabled
+# Zero retains compatibility for manual calls. Referee calls carry a generation.
+uint64 round_id
 ---
 bool success
 string message

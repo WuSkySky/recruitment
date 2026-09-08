@@ -5,6 +5,7 @@
 -->
 <sdf version="1.7">
   <world name="default">
+    <plugin filename="libRecruitmentSimRefereeSimulation.so" name="recruitment_sim::RefereeSimulation"/>
     <plugin
       filename="libignition-gazebo-physics-system.so"
       name="ignition::gazebo::systems::Physics"/>
