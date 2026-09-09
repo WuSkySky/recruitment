@@ -230,23 +230,29 @@ function onPointerLockChange(): void {
   if (!pointerLocked.value) releaseInput();
 }
 
+function inputActive(): boolean {
+  return pointerLocked.value && connection.value === "connected"
+    && document.hasFocus() && !document.hidden;
+}
+
 function onKey(event: KeyboardEvent, pressed: boolean): void {
   if (event.code === "F3" && pressed && !event.repeat) {
     event.preventDefault();
     diagnosticsVisible.value = !diagnosticsVisible.value;
     return;
   }
-  if (!["KeyW", "KeyA", "KeyS", "KeyD"].includes(event.code)) return;
-  event.preventDefault();
-  if (pointerLocked.value) input.setKey(event.code, pressed);
+  if (["Escape", "F3"].includes(event.code) || !inputActive()) return;
+  if (event.cancelable) event.preventDefault();
+  if (pressed && event.repeat) return;
+  input.setKey(event.code, pressed);
 }
 
 function onMouseMove(event: MouseEvent): void {
-  if (pointerLocked.value) input.move(event.movementX, event.movementY);
+  if (inputActive()) input.move(event.movementX, event.movementY);
 }
 
 function onMouseButton(event: MouseEvent, pressed: boolean): void {
-  if (!pointerLocked.value || ![0, 2].includes(event.button)) return;
+  if (!inputActive() || ![0, 1, 2, 3, 4].includes(event.button)) return;
   event.preventDefault();
   input.setButton(event.button, pressed);
 }
@@ -290,12 +296,7 @@ onMounted(() => {
   window.addEventListener("blur", releaseInput);
   document.addEventListener("visibilitychange", onVisibilityChange);
   sendTimer = window.setInterval(
-    () => sendInput(
-      pointerLocked.value
-      && connection.value === "connected"
-      && document.hasFocus()
-      && !document.hidden,
-    ),
+    () => sendInput(inputActive()),
     1000 / 60,
   );
   clockTimer = window.setInterval(() => (now.value = performance.now()), 250);

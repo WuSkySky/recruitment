@@ -4,19 +4,14 @@ export interface PlayerInputSnapshot {
   active: boolean;
   mouse_dx: number;
   mouse_dy: number;
-  key_w: boolean;
-  key_a: boolean;
-  key_s: boolean;
-  key_d: boolean;
-  left_button: boolean;
-  right_button: boolean;
+  pressed_keys: string[];
 }
 
 export class InputAccumulator {
   private dx = 0;
   private dy = 0;
   private keys = new Set<string>();
-  private buttons = new Set<number>();
+
 
   move(dx: number, dy: number): void {
     this.dx += dx;
@@ -24,28 +19,25 @@ export class InputAccumulator {
   }
 
   setKey(code: string, pressed: boolean): void {
+    if (!code || ["Unidentified", "Escape", "F3"].includes(code)) return;
     if (pressed) this.keys.add(code);
     else this.keys.delete(code);
   }
 
   setButton(button: number, pressed: boolean): void {
-    if (pressed) this.buttons.add(button);
-    else this.buttons.delete(button);
+    const code = ["MouseLeft", "MouseMiddle", "MouseRight", "MouseBack", "MouseForward"][button];
+    if (code) this.setKey(code, pressed);
   }
 
   snapshot(sequence: number, active: boolean): PlayerInputSnapshot {
+    if (!active) this.reset();
     const result: PlayerInputSnapshot = {
       type: "input",
       sequence,
       active,
       mouse_dx: active ? this.dx : 0,
       mouse_dy: active ? this.dy : 0,
-      key_w: active && this.keys.has("KeyW"),
-      key_a: active && this.keys.has("KeyA"),
-      key_s: active && this.keys.has("KeyS"),
-      key_d: active && this.keys.has("KeyD"),
-      left_button: active && this.buttons.has(0),
-      right_button: active && this.buttons.has(2),
+      pressed_keys: [...this.keys].sort(),
     };
     this.dx = 0;
     this.dy = 0;
@@ -56,6 +48,5 @@ export class InputAccumulator {
     this.dx = 0;
     this.dy = 0;
     this.keys.clear();
-    this.buttons.clear();
   }
 }

@@ -15,18 +15,13 @@ def test_parse_input_snapshot():
             "active": True,
             "mouse_dx": 12,
             "mouse_dy": -3.5,
-            "key_w": True,
-            "key_a": False,
-            "key_s": False,
-            "key_d": True,
-            "left_button": True,
-            "right_button": False,
+            "pressed_keys": ["KeyW", "ShiftLeft", "MouseLeft", "KeyW"],
         }
     )
     assert snapshot.sequence == 7
     assert snapshot.mouse_dx == 12.0
     assert snapshot.mouse_dy == -3.5
-    assert snapshot.key_w and snapshot.key_d and snapshot.left_button
+    assert snapshot.pressed_keys == ["KeyW", "MouseLeft", "ShiftLeft"]
 
 
 @pytest.mark.parametrize(
@@ -35,11 +30,15 @@ def test_parse_input_snapshot():
         ("sequence", -1),
         ("sequence", 2**32),
         ("mouse_dx", float("nan")),
-        ("key_w", 1),
+        ("active", 1),
+        ("pressed_keys", "KeyW"),
+        ("pressed_keys", [1]),
+        ("pressed_keys", [""]),
+        ("pressed_keys", None),
     ],
 )
 def test_rejects_invalid_input(field, value):
-    payload = {"sequence": 1, field: value}
+    payload = {"sequence": 1, "pressed_keys": [], field: value}
     with pytest.raises(ValueError):
         parse_input(payload)
 
@@ -95,3 +94,19 @@ def test_role_registry_only_owner_can_release_role():
     assert registry.acquire("blue", owner)
     assert not registry.release("blue", object())
     assert registry.occupied("blue")
+
+
+def test_inactive_input_clears_keys_and_motion():
+    snapshot = parse_input({
+        "sequence": 1, "active": False, "pressed_keys": ["KeyW"],
+        "mouse_dx": 10, "mouse_dy": -2,
+    })
+    assert snapshot.pressed_keys == []
+    assert snapshot.mouse_dx == snapshot.mouse_dy == 0
+
+
+def test_empty_input_and_extensible_key_names():
+    assert parse_input({"sequence": 1, "pressed_keys": []}).pressed_keys == []
+    assert parse_input({
+        "sequence": 2, "active": True, "pressed_keys": ["CustomKey"],
+    }).pressed_keys == ["CustomKey"]

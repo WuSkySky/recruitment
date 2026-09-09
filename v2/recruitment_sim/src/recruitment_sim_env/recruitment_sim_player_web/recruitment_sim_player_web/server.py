@@ -312,12 +312,7 @@ class CompetitionWebNode(Node):
         if snapshot.active:
             message.mouse_dx = snapshot.mouse_dx
             message.mouse_dy = snapshot.mouse_dy
-            message.key_w = snapshot.key_w
-            message.key_a = snapshot.key_a
-            message.key_s = snapshot.key_s
-            message.key_d = snapshot.key_d
-            message.left_button = snapshot.left_button
-            message.right_button = snapshot.right_button
+            message.pressed_keys = snapshot.pressed_keys
         self._input_publishers[team].publish(message)
 
     def publish_neutral(self, team: str, sequence: int = 0) -> None:
@@ -325,7 +320,7 @@ class CompetitionWebNode(Node):
             team,
             InputSnapshot(
                 sequence, False, 0.0, 0.0,
-                False, False, False, False, False, False,
+                [],
             ),
         )
 

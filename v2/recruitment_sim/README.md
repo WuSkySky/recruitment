@@ -102,6 +102,15 @@ ros2 launch recruitment_sim_bringup bringup.launch.py \
 - `/<team>/infantry/player_input`：浏览器以 60 Hz 发布的 `PlayerInput` 原始键鼠状态；
   `mouse_dx/mouse_dy` 是当前周期内浏览器 `movementX/movementY` 的总和，正方向分别为右和下。
   `active=false` 表示页面未锁定鼠标或控制会话已经断开，选手控制节点应立即输出安全的零命令。
+  `pressed_keys` 是当前按住的键鼠名称数组（`string[]`），去重并按名称排序；无按键或输入失效时为空。
+  键盘使用浏览器 `KeyboardEvent.code`（例如 `KeyW`、`ShiftLeft`），鼠标按钮编号 0–4 分别为
+  `MouseLeft`、`MouseMiddle`、`MouseRight`、`MouseBack`、`MouseForward`。
+  Esc 释放鼠标、F3 切换诊断面板，均不进入数组；系统保留快捷键及 Fn 等不保证可捕获。
+  只发送按住状态，不缓存按键事件，两次采样之间完成的极短点击可能漏掉。
+  Python 订阅回调可用 `msg.active and "KeyW" in msg.pressed_keys` 判断操作。
+  原 `key_w/key_a/key_s/key_d/left_button/right_button` 字段已移除，外部订阅节点须同步修改、
+  重新构建接口和依赖包，并与网页及后端一起更新、重启。
+
 - 哨兵额外提供 `/<team>/sentry/livox/lidar`。
 - 当前不发布 `/tf`、`/tf_static` 或 `joint_states`。
 

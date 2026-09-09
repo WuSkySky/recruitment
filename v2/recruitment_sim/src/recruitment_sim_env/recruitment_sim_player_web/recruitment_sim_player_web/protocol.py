@@ -18,12 +18,7 @@ class InputSnapshot:
     active: bool
     mouse_dx: float
     mouse_dy: float
-    key_w: bool
-    key_a: bool
-    key_s: bool
-    key_d: bool
-    left_button: bool
-    right_button: bool
+    pressed_keys: list[str]
 
 
 class RoleRegistry:
@@ -79,17 +74,19 @@ def parse_input(payload: Mapping[str, Any]) -> InputSnapshot:
     ):
         raise ValueError("mouse_dy must be finite")
 
+    keys = payload.get("pressed_keys")
+    if not isinstance(keys, list) or any(
+        not isinstance(code, str) or not code.strip() for code in keys
+    ):
+        raise ValueError("pressed_keys must be an array of non-empty strings")
+    active = _boolean(payload, "active")
+
     return InputSnapshot(
         sequence=sequence,
-        active=_boolean(payload, "active"),
-        mouse_dx=float(dx),
-        mouse_dy=float(dy),
-        key_w=_boolean(payload, "key_w"),
-        key_a=_boolean(payload, "key_a"),
-        key_s=_boolean(payload, "key_s"),
-        key_d=_boolean(payload, "key_d"),
-        left_button=_boolean(payload, "left_button"),
-        right_button=_boolean(payload, "right_button"),
+        active=active,
+        mouse_dx=float(dx) if active else 0.0,
+        mouse_dy=float(dy) if active else 0.0,
+        pressed_keys=sorted(set(keys)) if active else [],
     )
 
 

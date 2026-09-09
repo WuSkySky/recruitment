@@ -15,8 +15,31 @@ describe("InputAccumulator", () => {
     const input = new InputAccumulator();
     input.setKey("KeyW", true);
     input.setButton(0, true);
-    expect(input.snapshot(1, false)).toMatchObject({ key_w: false, left_button: false });
+    expect(input.snapshot(1, false)).toMatchObject({ pressed_keys: [] });
     input.reset();
-    expect(input.snapshot(2, true)).toMatchObject({ key_w: false, left_button: false });
+    expect(input.snapshot(2, true)).toMatchObject({ pressed_keys: [] });
+  });
+});
+
+
+describe("held keys", () => {
+  it("keeps combinations across snapshots and removes released keys", () => {
+    const input = new InputAccumulator();
+    for (const code of ["KeyR", "ShiftLeft", "ShiftRight", "KeyR"]) input.setKey(code, true);
+    for (let button = 0; button < 5; button++) input.setButton(button, true);
+    const expected = ["KeyR", "ShiftLeft", "ShiftRight", "MouseLeft", "MouseMiddle", "MouseRight", "MouseBack", "MouseForward"].sort();
+    expect(input.snapshot(1, true).pressed_keys).toEqual(expected);
+    expect(input.snapshot(2, true).pressed_keys).toEqual(expected);
+    input.setKey("KeyR", false);
+    input.setButton(0, false);
+    expect(input.snapshot(3, true).pressed_keys).toEqual(expected.filter(code => !["KeyR", "MouseLeft"].includes(code)));
+    input.snapshot(4, false);
+    expect(input.snapshot(5, true).pressed_keys).toEqual([]);
+  });
+
+  it("excludes reserved and unidentified keys", () => {
+    const input = new InputAccumulator();
+    for (const code of ["", "Unidentified", "Escape", "F3"]) input.setKey(code, true);
+    expect(input.snapshot(1, true).pressed_keys).toEqual([]);
   });
 });
