@@ -16,6 +16,11 @@
   <exec_depend>recruitment_sim_player_web</exec_depend>
   <exec_depend>recruitment_sim_robot_base</exec_depend>
   <exec_depend>recruitment_sim_referee_system</exec_depend>
+  <depend>rclcpp</depend>
+  <depend>geometry_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>rosgraph_msgs</depend>
+  <depend>recruitment_sim_interfaces</depend>
   <exec_depend>ros_gz_bridge</exec_depend>
   <exec_depend>ros_gz_sim</exec_depend>
   <exec_depend>rviz2</exec_depend>

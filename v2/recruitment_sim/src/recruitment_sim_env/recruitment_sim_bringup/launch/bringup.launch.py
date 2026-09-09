@@ -22,6 +22,7 @@ ROBOT_TOPIC_TYPES = {
 }
 SUPPORTED_ROBOTS = set(ROBOT_TOPIC_TYPES)
 SUPPORTED_COLORS = {"none", "red", "blue", "yellow", "white"}
+TEAM_DOMAIN_IDS = {"red": "20", "blue": "30"}
 
 
 def _robot_namespace(robot):
@@ -181,6 +182,10 @@ def _spawn_robots(context: LaunchContext):
                 package="ros_gz_bridge",
                 executable="parameter_bridge",
                 name=f"{robot_name}_bridge",
+                additional_env=(
+                    {"ROS_DOMAIN_ID": TEAM_DOMAIN_IDS[robot["color"]]}
+                    if robot["color"] in TEAM_DOMAIN_IDS else {}
+                ),
                 output="screen",
                 arguments=[
                     f"{gz_topic}@{ros_type}[{gz_type}"
@@ -221,10 +226,28 @@ def _spawn_robots(context: LaunchContext):
         )
     )
 
+    for team, domain in TEAM_DOMAIN_IDS.items():
+        robots = [robot for robot in config["robots"] if robot["color"] == team]
+        if robots:
+            actions.append(Node(
+                package="recruitment_sim_bringup",
+                executable="team_topic_bridge",
+                name=f"{team}_topic_bridge",
+                output="screen",
+                parameters=[{
+                    "team": team,
+                    "team_domain": int(domain),
+                    "robot_namespaces": [_robot_namespace(robot) for robot in robots],
+                    "robot_names": [robot["name"] for robot in robots],
+                }],
+            ))
+
     return actions
 
 
 def generate_launch_description():
+    if os.environ.get("ROS_DOMAIN_ID", "0") in TEAM_DOMAIN_IDS.values():
+        raise RuntimeError("Internal ROS_DOMAIN_ID must differ from team domains 20 and 30")
     bringup_share = get_package_share_directory("recruitment_sim_bringup")
     description_share = get_package_share_directory("recruitment_sim_description")
     ros_gz_share = get_package_share_directory("ros_gz_sim")

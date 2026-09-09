@@ -114,6 +114,36 @@ ros2 launch recruitment_sim_bringup bringup.launch.py \
 - 哨兵额外提供 `/<team>/sentry/livox/lidar`。
 - 当前不发布 `/tf`、`/tf_static` 或 `joint_states`。
 
+### 传感器分域试验
+
+每台机器人的 Gazebo→ROS 传感器桥单独指定 ROS 域：红方为 `20`，蓝方为 `30`。
+相机、camera_info、云台 IMU、哨兵点云及真值里程计 `chassis_odometry_gt` 均随桥进入
+对应队伍域；其他颜色沿用启动环境中的域。话题名称保持不变，不增加 ROS→ROS 转发。
+
+在选手电脑或主机上，可分别查看两个域（`--no-daemon` 避免复用其他域的 CLI daemon）：
+
+```bash
+ROS_DOMAIN_ID=20 ros2 topic list --no-daemon
+ROS_DOMAIN_ID=30 ros2 topic list --no-daemon
+```
+
+主机同时启动红蓝两个小消息网关。内部域继承启动环境的 `ROS_DOMAIN_ID`（默认 `0`），
+必须不同于 `20` 和 `30`。网关只按下面的白名单、方向转发：
+
+| 方向 | 接口 |
+| --- | --- |
+| 队伍域 → 内部域 | 己方各机器人 `cmd_chassis_vel`、`cmd_yaw_vel`、`cmd_pitch_vel`、`cmd_shoot` |
+| 内部域 → 队伍域 | 己方各机器人四个 `feedback_*` 角度/速度反馈 |
+| 内部域 → 队伍域 | 己方机器人 `/referee_system/<robot_name>/status`、己方步兵 `player_input` |
+| 内部域 → 两队域 | `/clock`、`/referee_system/match/status`（保留 transient-local） |
+
+机器人基础控制与裁判继续在内部域通信，重置、使能、灯条以及其他服务均不转发。
+相机、IMU、点云和真值里程计仍由 Gazebo→ROS 桥直接发布到各队域，不经过小消息网关。
+反馈保留在内部域，并单向转发到对应队伍域。选手可在域 20/30 直接发送己方控制命令。
+
+Web 后端仍在内部域：键鼠输入通过网关进入队伍域，但其相机订阅尚未适配，Web 画面暂不可用。
+本方案只用于逻辑分组，不提供身份认证或访问控制；修改域编号仍可接入其他域。
+
 交互式测试工具示例：
 
 ```bash
