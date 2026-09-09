@@ -1,6 +1,12 @@
 # Internal lifecycle barrier. Reject older generations; stop and clear commands.
+uint8 NONE=0
+uint8 RED=1
+uint8 BLUE=2
+uint8 YELLOW=3
+uint8 WHITE=4
 uint64 round_id
 bool enabled
+uint8 color
 ---
 bool success
 string message

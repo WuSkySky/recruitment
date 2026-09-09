@@ -1,7 +1,9 @@
 #include "recruitment_sim_referee_system/match_engine.hpp"
 #include <chrono>
+#include <cstdint>
 #include <deque>
 #include <iomanip>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -42,8 +44,20 @@ public:
     std::vector<RobotConfig> configs;
     std::ostringstream config; config << names.size();
     auto qos = rclcpp::QoS(10).reliable().transient_local();
+    const std::map<std::string, uint8_t> color_values{
+      {"none", Reset::Request::NONE},
+      {"red", Reset::Request::RED},
+      {"blue", Reset::Request::BLUE},
+      {"yellow", Reset::Request::YELLOW},
+      {"white", Reset::Request::WHITE},
+    };
     for (size_t i = 0; i < names.size(); ++i) {
+      const auto color = color_values.find(teams[i]);
+      if (color == color_values.end()) {
+        throw std::runtime_error("unsupported robot color: " + teams[i]);
+      }
       configs.push_back({names[i], teams[i], static_cast<int>(hp[i]), heat[i], cool[i]});
+      colors_[names[i]] = color->second;
       config << ' ' << std::quoted(names[i]) << ' ' << std::quoted(sdfs[i]);
       publishers_[names[i]] = create_publisher<RobotStatus>("/referee_system/" + names[i] + "/status", qos);
       enables_[names[i]] = create_client<Enable>("/referee_system/" + names[i] + "/set_enabled");
@@ -67,7 +81,7 @@ public:
           }
         } else if (req->command == Control::Request::RESUME) {
           if (!match_->reset(++serial_)) {
-            res->message = "reset is already running or ending";
+            res->message = "reset is only allowed in TRAINING, FINISHED, or ERROR";
           } else {
             new_operation();
             if (!configured_) {simulation("CONFIG", Stage::CONFIG, config_payload_);}
@@ -75,7 +89,7 @@ public:
             res->accepted = true; res->message = "reset and resume accepted; wait for READY";
           }
         } else {res->message = "unknown match command";}
-        res->round_id = match_->round(); publish();
+        publish();
       });
     node_.Subscribe("/referee_system/simulation/frame", &RefereeSystemNode::receive, this);
     serial_ = static_cast<uint64_t>(steady());
@@ -164,7 +178,9 @@ private:
     match_->fail(message); new_operation(); stage_ = Stage::IDLE;
     // Best effort fail-safe only: ERROR never claims pause/disable succeeded.
     for (const auto & c : resets_) {
-      auto req = std::make_shared<Reset::Request>(); req->round_id = control_epoch_; req->enabled = false;
+      auto req = std::make_shared<Reset::Request>();
+      req->round_id = control_epoch_; req->enabled = false;
+      req->color = colors_.at(c.first);
       if (c.second->service_is_ready()) {c.second->async_send_request(req,
         [](rclcpp::Client<Reset>::SharedFuture) {});}
     }
@@ -247,6 +263,7 @@ private:
       if (!client->service_is_ready()) {continue;}
       auto req = std::make_shared<Reset::Request>();
       req->round_id = control_epoch_; req->enabled = base_value_;
+      req->color = colors_.at(p.first);
       const auto epoch = control_epoch_; const auto stage = stage_; const auto name = p.first;
       pending.sent = steady(); pending.in_flight = true;
       pending.id = client->async_send_request(req,
@@ -282,7 +299,7 @@ private:
   }
   void publish()
   {
-    Status s; s.header.stamp = now(); s.round_id = match_->round(); s.state = match_->state();
+    Status s; s.header.stamp = now(); s.state = match_->state();
     s.elapsed_seconds = match_->elapsed(); s.remaining_seconds = 300 - s.elapsed_seconds;
     s.red_victory_points = match_->points()[0]; s.blue_victory_points = match_->points()[1];
     auto d = match_->damage(); auto h = match_->hp();
@@ -315,6 +332,7 @@ private:
   rclcpp::Service<Control>::SharedPtr service_;
   std::map<std::string, rclcpp::Client<Enable>::SharedPtr> enables_;
   std::map<std::string, rclcpp::Client<Reset>::SharedPtr> resets_;
+  std::map<std::string, uint8_t> colors_;
   std::map<std::string, Pending> pending_;
   std::map<std::pair<std::string, uint8_t>, Desired> desired_;
   rclcpp::TimerBase::SharedPtr timer_, status_timer_;

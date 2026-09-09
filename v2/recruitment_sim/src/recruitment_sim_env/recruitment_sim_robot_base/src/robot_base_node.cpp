@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "recruitment_sim_robot_base/robot_base_node.hpp"
+#include "recruitment_sim_robot_base/reset_request_validation.hpp"
 
 #include <memory>
 #include <string>
@@ -80,18 +81,25 @@ RobotBaseNode::RobotBaseNode(const rclcpp::NodeOptions & options)
     "/referee_system/" + robot_name + "/reset",
     [this](const std::shared_ptr<recruitment_sim_interfaces::srv::ResetRobot::Request> req,
     std::shared_ptr<recruitment_sim_interfaces::srv::ResetRobot::Response> res) {
-      if (req->round_id < round_id_) {
+      const auto error = validate_reset_request(round_id_, req->round_id, req->color);
+      if (error == ResetRequestError::STALE_ROUND) {
         res->success = false;
         res->message = "stale round";
+        return;
+      }
+      if (error == ResetRequestError::INVALID_COLOR) {
+        res->success = false;
+        res->message = "color must be in the range [0, 4]";
         return;
       }
       round_id_ = req->round_id;
       enable_state_.set(EnableState::ALL, false);
       apply_enabled_state();  // Clears gimbal targets and emits zero/stop commands.
+      gz_light_bar_cmd_->set_state(req->color);
       enable_state_.reset(req->enabled);
       apply_enabled_state();
       res->success = true;
-      res->message = "control state reset";
+      res->message = "control state and light color reset";
     });
   // Enable actuators and sensors. Sensor reporting deliberately remains independent from
   // referee power state so a disabled robot is still observable.

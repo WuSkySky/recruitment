@@ -259,7 +259,6 @@ def generate_launch_description():
             DeclareLaunchArgument("rviz", default_value="false"),
             DeclareLaunchArgument("rviz_config", default_value=default_rviz),
             DeclareLaunchArgument("player_web", default_value="false"),
-            DeclareLaunchArgument("player_team", default_value="red"),
             DeclareLaunchArgument("player_web_port", default_value="8080"),
             DeclareLaunchArgument("log_level", default_value="info"),
             gazebo_gui,
@@ -287,7 +286,6 @@ def generate_launch_description():
                 parameters=[
                     {
                         "robots_file": LaunchConfiguration("robots_file"),
-                        "player_team": LaunchConfiguration("player_team"),
                         "port": ParameterValue(
                             LaunchConfiguration("player_web_port"), value_type=int
                         ),

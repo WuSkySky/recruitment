@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "recruitment_sim_robot_base/enable_state.hpp"
+#include "recruitment_sim_robot_base/reset_request_validation.hpp"
 
 namespace base = recruitment_sim_robot_base;
 
@@ -52,4 +53,31 @@ TEST(EnableState, ResetClearsComponentLocksAndSetsGlobalState)
   EXPECT_FALSE(state.chassis_enabled());
   EXPECT_FALSE(state.gimbal_enabled());
   EXPECT_FALSE(state.shooter_enabled());
+}
+
+TEST(ResetRequest, AcceptsCurrentAndNewRoundsWithSupportedColors)
+{
+  using Error = base::ResetRequestError;
+  using Request = recruitment_sim_interfaces::srv::ResetRobot::Request;
+  EXPECT_EQ(base::validate_reset_request(10, 10, Request::RED), Error::NONE);
+  EXPECT_EQ(base::validate_reset_request(10, 11, Request::BLUE), Error::NONE);
+  EXPECT_EQ(base::validate_reset_request(10, 11, Request::NONE), Error::NONE);
+  EXPECT_EQ(base::validate_reset_request(10, 11, Request::WHITE), Error::NONE);
+}
+
+TEST(ResetRequest, RejectsStaleRoundsBeforeChangingColor)
+{
+  using Error = base::ResetRequestError;
+  using Request = recruitment_sim_interfaces::srv::ResetRobot::Request;
+  EXPECT_EQ(
+    base::validate_reset_request(10, 9, Request::BLUE),
+    Error::STALE_ROUND);
+}
+
+TEST(ResetRequest, RejectsUnsupportedColors)
+{
+  using Error = base::ResetRequestError;
+  EXPECT_EQ(
+    base::validate_reset_request(10, 11, 255),
+    Error::INVALID_COLOR);
 }

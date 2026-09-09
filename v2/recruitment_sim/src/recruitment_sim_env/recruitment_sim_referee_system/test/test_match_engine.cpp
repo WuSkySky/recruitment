@@ -37,6 +37,8 @@ TEST(Match, TrainingAndRoundReset)
   EXPECT_FALSE(m.referee().robots().at("r").permanently_locked);
   EXPECT_EQ(m.damage()[0], 0u); EXPECT_EQ(m.elapsed(), 0);
   m.process(f); EXPECT_EQ(m.referee().robots().at("b").current_hp, 40);
+  EXPECT_FALSE(m.reset(2));
+  m.end(); m.paused();
   EXPECT_TRUE(m.reset(2)); m.reset_complete(); EXPECT_TRUE(m.start(3 * sec)); EXPECT_EQ(m.round(), 2u);
 }
 TEST(Match, BoundaryFirstArrivalAndNoStacking)

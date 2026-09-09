@@ -55,4 +55,10 @@ install(DIRECTORY resource DESTINATION share/${PROJECT_NAME})
 ament_python_install_package(${PROJECT_NAME})
 ament_environment_hooks("${CMAKE_CURRENT_SOURCE_DIR}/env-hooks/gazebo.dsv.in")
 
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_light_bar_controller test/test_light_bar_controller.cpp)
+  target_link_libraries(test_light_bar_controller ignition-gazebo6::ignition-gazebo6)
+endif()
+
 ament_package()

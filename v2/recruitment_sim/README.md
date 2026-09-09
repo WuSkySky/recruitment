@@ -25,7 +25,7 @@ source install/setup.bash
 - `recruitment_sim_description`：机器人与 RMUL 2026 场地描述、模型资源、SDF→URDF 工具和 Gazebo 插件。
 - `recruitment_sim_robot_base`：底盘、云台、射击、灯条与里程计控制节点。
 - `recruitment_sim_referee_system`：血量、热量、命中、中央占点、胜利点和比赛生命周期。
-- `recruitment_sim_player_web`：WebRTC 步兵相机、浏览器 HUD 和原始键鼠输入网关。
+- `recruitment_sim_player_web`：红蓝选手端、Web 裁判端、WebRTC 相机和原始键鼠输入网关。
 - `recruitment_sim_bringup`：机器人配置、生成、传感器桥接和 RViz 启动。
 
 ## 启动
@@ -50,16 +50,16 @@ ros2 launch recruitment_sim_bringup bringup.launch.py gui:=false
 ros2 launch recruitment_sim_bringup bringup.launch.py rviz:=true
 ```
 
-启动红方浏览器选手端：
+启动统一浏览器比赛终端：
 
 ```bash
 ros2 launch recruitment_sim_bringup bringup.launch.py \
-  player_web:=true player_team:=red player_web_port:=8080
+  player_web:=true player_web_port:=8080
 ```
 
-蓝方将 `player_team` 改为 `blue`。浏览器访问 `http://<仿真主机局域网地址>:8080`，点击进入
-比赛后页面进入全屏并锁定鼠标。第一阶段一个选手端进程只提供所选阵营的一路步兵相机，且只允许
-一个浏览器控制会话；需要同时启动红蓝双方时，应在两个 ROS 进程中使用不同端口启动选手端。
+浏览器访问 `http://<仿真主机局域网地址>:8080`，在选择页分别打开红方选手端、蓝方选手端
+和裁判端。三个角色可同时连接；同一角色只允许一个标签页占用。选手点击进入比赛后页面进入
+全屏并锁定鼠标，标签页失焦、退出鼠标锁定或断线时只释放对应阵营的输入。
 
 如需切换回空场，可显式指定：
 
@@ -93,6 +93,8 @@ ros2 launch recruitment_sim_bringup bringup.launch.py \
 - `/<team>/<type>/cmd_shoot`：`std_msgs/msg/Bool` 射击开关；`true` 时以 50 ms
   间隔和固定 `18 m/s` 弹速持续射击，必须显式发送 `false` 才会停止。
 - `/<team>/<type>/robot_base/set_light_color`：灯条颜色服务，0–4 对应关闭、红、蓝、黄、白。
+  灯条插件通过 Fortress `VisualCmd` 更新实际渲染材质，暂停仿真时也接受改色。
+  修改插件并重新构建后需要重启 Gazebo 才会加载新的动态库；仅重新调用服务不会更新已加载的插件。
 - `/referee_system/<robot_name>/set_enabled`：裁判控制服务；目标 0–3 分别为整机、底盘、云台、
   发射机构。失能会立即停止对应执行器，传感器和反馈继续运行。
 - `/<team>/<type>/chassis_odometry_gt`、`gimbal_imu`：状态反馈。
@@ -136,7 +138,7 @@ ros2 topic echo /referee_system/red_infantry_robot/status
 启动后处于 `TRAINING`，血量、热量和受击正常工作，但不计比赛时间和胜利点。比赛服务与状态为：
 
 - `/referee_system/match/control`：`ControlMatch` 服务；命令 `0` 开始裁判、`1` 人工结束、`2` 重置并恢复仿真。
-- `/referee_system/match/status`：10 Hz、可靠且 transient-local 的 `MatchStatus`，包含局次、状态、
+- `/referee_system/match/status`：10 Hz、可靠且 transient-local 的 `MatchStatus`，包含状态、
   剩余时间、双方胜利点、攻击伤害、总剩余血量、占领方、结果和错误。
 
 ```bash
@@ -148,17 +150,18 @@ ros2 service call /referee_system/match/control \
 ros2 topic echo /referee_system/match/status
 ```
 
-每局 300 秒，双方从 200 胜利点开始。存活机器人的底盘中心进入中央 `3 × 3 m` 区域后按
+比赛时长 300 秒，双方从 200 胜利点开始。存活机器人的底盘中心进入中央 `3 × 3 m` 区域后按
 先到先得占领；离区保留 2 秒，占领每满 1 秒扣对方 1 点。机器人首次战亡使己方扣 20 点。
 胜利点归零立即结束；时间耗尽后依次比较胜利点、全队实际攻击伤害和总剩余血量，仍相同则平局。
 人工结束的结果为 `ABORTED`。结束会失能机器人并暂停 Gazebo。`RESUME` 会清除旧弹丸，恢复出生
-位姿、满血、零热量、200:200 和执行器初始状态，再恢复仿真并进入 `READY`；`START` 只从该状态
+位姿、满血、零热量、200:200、执行器初始状态及 `robots.yaml` 配置的装甲板灯条颜色，再恢复
+仿真并进入 `READY`；`START` 只从该状态
 开始 300 秒裁判计时，不再隐式重置。Gazebo Fortress 无法可靠地销毁后
 立即重建带 GPU 雷达/相机的模型，因此生命周期复位保留传感器实体并原地重置机器人，其比赛状态等价。
 
 本阶段不包含撞击伤害、42 mm 弹丸、回血复活、弹量限制、射击初速度处罚、准备阶段和 BO 管理。
 
-## 选手端前端开发
+## Web 比赛终端开发
 
 已构建的静态资源随 ROS 包安装，运行比赛不需要 Node.js。修改 Vue 前端后重新生成资源：
 
@@ -169,7 +172,8 @@ npm test
 npm run build
 ```
 
-正式 HUD 显示双方剩余得分点、比赛时间、双方步兵/哨兵血量、本机血量和固定中央准星。
-按 `F3` 可临时查看相机接收/显示帧率、WebRTC 丢帧、WebSocket RTT 和连接状态。
+红蓝选手 HUD 显示双方剩余得分点、比赛时间、双方步兵/哨兵血量、本机血量和固定中央准星，
+按 `F3` 可临时查看相机接收/显示帧率、WebRTC 丢帧、WebSocket RTT 和连接状态。裁判端显示
+比赛阶段、时间、比分、占点、四台机器人状态，并按比赛状态提供重置、开始和结束按钮。
 
 第三方代码与模型来源见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

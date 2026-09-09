@@ -1,4 +1,3 @@
-from glob import glob
 import os
 
 from setuptools import find_packages, setup
@@ -15,7 +14,12 @@ def web_data_files():
     for directory, _, files in os.walk(root):
         if files:
             destination = os.path.join("share", package_name, directory)
-            entries.append((destination, [os.path.join(directory, item) for item in files]))
+            entries.append(
+                (
+                    destination,
+                    [os.path.join(directory, item) for item in files],
+                )
+            )
     return entries
 
 
@@ -24,14 +28,20 @@ setup(
     version="0.1.0",
     packages=find_packages(exclude=["test"]),
     data_files=[
-        ("share/ament_index/resource_index/packages", [f"resource/{package_name}"]),
+        (
+            "share/ament_index/resource_index/packages",
+            [f"resource/{package_name}"],
+        ),
         (f"share/{package_name}", ["package.xml"]),
     ] + web_data_files(),
     install_requires=["setuptools"],
     zip_safe=True,
     maintainer="Recruitment Simulation Maintainers",
     maintainer_email="maintainers@example.com",
-    description="Browser player HUD, WebRTC camera streaming and ROS 2 input gateway.",
+    description=(
+        "Unified browser player and referee UI with WebRTC and ROS 2 "
+        "integration."
+    ),
     license="Apache-2.0",
     tests_require=["pytest"],
     entry_points={

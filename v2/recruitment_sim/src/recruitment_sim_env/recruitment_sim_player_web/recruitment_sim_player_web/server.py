@@ -6,7 +6,7 @@ import os
 import secrets
 import threading
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 from aiohttp import WSMsgType, web
 from aiortc import (
@@ -29,16 +29,36 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 from rclpy.signals import SignalHandlerOptions
-from recruitment_sim_interfaces.msg import MatchStatus, PlayerInput, RobotStatus
+from recruitment_sim_interfaces.msg import (
+    MatchStatus,
+    PlayerInput,
+    RobotStatus,
+)
+from recruitment_sim_interfaces.srv import ControlMatch
 from sensor_msgs.msg import Image
 import yaml
 
-from .protocol import InputSnapshot, parse_input
+from .protocol import (
+    ALL_ROLES,
+    PLAYER_ROLES,
+    InputSnapshot,
+    RoleRegistry,
+    parse_input,
+    referee_command_allowed,
+    validate_role,
+)
 
 
 ROBOT_TYPES = {
     "pb2025_infantry_robot": "infantry",
     "pb2025_sentry_robot": "sentry",
+}
+MATCH_STATUS_TIMEOUT = 0.5
+CONTROL_TIMEOUT = 2.0
+CONTROL_COMMANDS = {
+    "start": ControlMatch.Request.START,
+    "end": ControlMatch.Request.END,
+    "reset": ControlMatch.Request.RESUME,
 }
 
 
@@ -53,7 +73,10 @@ class RobotDescriptor:
 def load_robots(path: str) -> List[RobotDescriptor]:
     with open(path, encoding="utf-8") as stream:
         config = yaml.safe_load(stream)
-    if not isinstance(config, dict) or not isinstance(config.get("robots"), list):
+    if (
+        not isinstance(config, dict)
+        or not isinstance(config.get("robots"), list)
+    ):
         raise RuntimeError("robots_file must contain a robots list")
 
     robots = []
@@ -63,7 +86,9 @@ def load_robots(path: str) -> List[RobotDescriptor]:
             name = str(entry["name"])
             team = str(entry["color"])
         except (KeyError, TypeError) as exc:
-            raise RuntimeError(f"invalid robot entry in {path}: {entry!r}") from exc
+            raise RuntimeError(
+                f"invalid robot entry in {path}: {entry!r}"
+            ) from exc
         robots.append(RobotDescriptor(name, team, kind, f"/{team}/{kind}"))
     return robots
 
@@ -102,7 +127,10 @@ class LatestImage:
                 continue
             event.clear()
             with self._lock:
-                if self._message is not None and self._sequence != after_sequence:
+                if (
+                    self._message is not None
+                    and self._sequence != after_sequence
+                ):
                     return self._sequence, self._message
             await event.wait()
 
@@ -124,7 +152,6 @@ class RosVideoTrack(VideoStreamTrack):
         super().__init__()
         self._latest = latest
         self._sequence = 0
-        self.sent_frames = 0
 
     async def recv(self) -> VideoFrame:
         self._sequence, message = await self._latest.next(self._sequence)
@@ -132,7 +159,6 @@ class RosVideoTrack(VideoStreamTrack):
         pts, time_base = await self.next_timestamp()
         frame.pts = pts
         frame.time_base = time_base
-        self.sent_frames += 1
         return frame
 
 
@@ -157,39 +183,37 @@ def ros_image_to_video_frame(message: Image) -> VideoFrame:
         pixels = pixels.reshape((message.height, message.width))
     else:
         pixels = pixels.reshape((message.height, message.width, channels))
-    return VideoFrame.from_ndarray(np.ascontiguousarray(pixels), format=frame_format)
+    return VideoFrame.from_ndarray(
+        np.ascontiguousarray(pixels), format=frame_format
+    )
 
 
-class PlayerGatewayNode(Node):
+class CompetitionWebNode(Node):
     def __init__(self) -> None:
         super().__init__("player_web")
         self.declare_parameter("robots_file", "")
-        self.declare_parameter("player_team", "red")
         self.declare_parameter("bind_address", "0.0.0.0")
         self.declare_parameter("port", 8080)
 
         robots_file = self.get_parameter("robots_file").value
-        self.player_team = self.get_parameter("player_team").value
         if not robots_file:
-            raise RuntimeError("robots_file parameter is required")
-        if self.player_team not in {"red", "blue"}:
-            raise RuntimeError("player_team must be 'red' or 'blue'")
-
-        self.robots = load_robots(robots_file)
-        selected = [
-            robot
-            for robot in self.robots
-            if robot.team == self.player_team and robot.kind == "infantry"
-        ]
-        if len(selected) != 1:
             raise RuntimeError(
-                f"robots_file must contain exactly one {self.player_team} infantry robot"
+                "robots_file parameter is required"
             )
-        self.player_robot = selected[0]
-        self.input_topic = f"{self.player_robot.namespace}/player_input"
-        self.camera_topic = (
-            f"{self.player_robot.namespace}/front_industrial_camera/image"
-        )
+        self.robots = load_robots(robots_file)
+        self.player_robots: Dict[str, RobotDescriptor] = {}
+        for team in sorted(PLAYER_ROLES):
+            selected = [
+                robot
+                for robot in self.robots
+                if robot.team == team and robot.kind == "infantry"
+            ]
+            if len(selected) != 1:
+                raise RuntimeError(
+                    "robots_file must contain exactly one "
+                    f"{team} infantry robot"
+                )
+            self.player_robots[team] = selected[0]
 
         sensor_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
@@ -203,44 +227,84 @@ class PlayerGatewayNode(Node):
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
         )
-        self.latest_image = LatestImage()
+        self.latest_images = {team: LatestImage() for team in PLAYER_ROLES}
+        self._input_publishers = {}
+        self._image_subscriptions = []
+        for team, robot in self.player_robots.items():
+            self._input_publishers[team] = self.create_publisher(
+                PlayerInput, f"{robot.namespace}/player_input", sensor_qos
+            )
+            self._image_subscriptions.append(
+                self.create_subscription(
+                    Image,
+                    f"{robot.namespace}/front_industrial_camera/image",
+                    self.latest_images[team].push,
+                    sensor_qos,
+                )
+            )
+
         self._state_lock = threading.Lock()
         self._match: Optional[MatchStatus] = None
+        self._match_received_at = 0.0
         self._robot_states: Dict[str, RobotStatus] = {}
-
-        self._input_publisher = self.create_publisher(
-            PlayerInput, self.input_topic, sensor_qos
-        )
-        self._image_subscription = self.create_subscription(
-            Image, self.camera_topic, self.latest_image.push, sensor_qos
-        )
+        self._robot_received_at: Dict[str, float] = {}
         self._match_subscription = self.create_subscription(
-            MatchStatus, "/referee_system/match/status", self._on_match, state_qos
+            MatchStatus,
+            "/referee_system/match/status",
+            self._on_match,
+            state_qos,
         )
         self._robot_subscriptions = []
         for robot in self.robots:
-            subscription = self.create_subscription(
-                RobotStatus,
-                f"/referee_system/{robot.name}/status",
-                lambda message, name=robot.name: self._on_robot(name, message),
-                state_qos,
+            self._robot_subscriptions.append(
+                self.create_subscription(
+                    RobotStatus,
+                    f"/referee_system/{robot.name}/status",
+                    lambda message, name=robot.name: self._on_robot(
+                        name, message
+                    ),
+                    state_qos,
+                )
             )
-            self._robot_subscriptions.append(subscription)
-
+        self._control_client = self.create_client(
+            ControlMatch, "/referee_system/match/control"
+        )
         self.get_logger().info(
-            f"player team={self.player_team}, camera={self.camera_topic}, "
-            f"input={self.input_topic}"
+            "competition web serves red player, blue player, and referee roles"
         )
 
     def _on_match(self, message: MatchStatus) -> None:
         with self._state_lock:
             self._match = message
+            self._match_received_at = time.monotonic()
 
     def _on_robot(self, name: str, message: RobotStatus) -> None:
         with self._state_lock:
             self._robot_states[name] = message
+            self._robot_received_at[name] = time.monotonic()
 
-    def publish_input(self, snapshot: InputSnapshot) -> None:
+    def match_online(self) -> bool:
+        with self._state_lock:
+            received_at = self._match_received_at
+        return (
+            received_at > 0.0
+            and time.monotonic() - received_at <= MATCH_STATUS_TIMEOUT
+        )
+
+    def current_match_state(self) -> Optional[int]:
+        with self._state_lock:
+            match = self._match
+            received_at = self._match_received_at
+        if (
+            match is None
+            or time.monotonic() - received_at > MATCH_STATUS_TIMEOUT
+        ):
+            return None
+        return int(match.state)
+
+    def publish_input(self, team: str, snapshot: InputSnapshot) -> None:
+        if team not in PLAYER_ROLES:
+            raise ValueError("input role must be red or blue")
         message = PlayerInput()
         message.header.stamp = self.get_clock().now().to_msg()
         message.sequence = snapshot.sequence
@@ -254,76 +318,147 @@ class PlayerGatewayNode(Node):
             message.key_d = snapshot.key_d
             message.left_button = snapshot.left_button
             message.right_button = snapshot.right_button
-        self._input_publisher.publish(message)
+        self._input_publishers[team].publish(message)
 
-    def publish_neutral(self, sequence: int = 0) -> None:
+    def publish_neutral(self, team: str, sequence: int = 0) -> None:
         self.publish_input(
+            team,
             InputSnapshot(
-                sequence,
-                False,
-                0.0,
-                0.0,
-                False,
-                False,
-                False,
-                False,
-                False,
-                False,
-            )
+                sequence, False, 0.0, 0.0,
+                False, False, False, False, False, False,
+            ),
         )
 
-    def status_payload(self) -> dict:
+    def status_payload(self, role: str) -> dict:
+        now = time.monotonic()
         with self._state_lock:
             match = self._match
+            match_at = self._match_received_at
             states = dict(self._robot_states)
+            state_times = dict(self._robot_received_at)
+        match_available = (
+            match is not None
+            and now - match_at <= MATCH_STATUS_TIMEOUT
+        )
         robots = []
         for descriptor in self.robots:
             state = states.get(descriptor.name)
+            available = (
+                state is not None
+                and now - state_times.get(descriptor.name, 0)
+                <= MATCH_STATUS_TIMEOUT
+            )
             robots.append(
                 {
                     **asdict(descriptor),
                     "max_hp": int(state.max_hp) if state else 0,
                     "current_hp": int(state.current_hp) if state else 0,
+                    "shooter_heat": (
+                        float(state.shooter_heat) if state else 0.0
+                    ),
+                    "heat_limit": float(state.heat_limit) if state else 0.0,
                     "alive": bool(state.alive) if state else False,
-                    "available": state is not None,
+                    "available": available,
                 }
             )
-        return {
+        payload = {
             "type": "status",
-            "player_team": self.player_team,
-            "player_robot": self.player_robot.name,
-            "ros_receive_fps": round(self.latest_image.receive_fps(), 1),
+            "role": role,
             "match": {
-                "available": match is not None,
+                "available": match_available,
                 "state": int(match.state) if match else 0,
+                "result": int(match.result) if match else 0,
                 "remaining_seconds": (
                     max(0.0, float(match.remaining_seconds)) if match else 0.0
                 ),
-                "red_victory_points": int(match.red_victory_points) if match else 0,
-                "blue_victory_points": int(match.blue_victory_points) if match else 0,
+                "red_victory_points": (
+                    int(match.red_victory_points) if match else 0
+                ),
+                "blue_victory_points": (
+                    int(match.blue_victory_points) if match else 0
+                ),
+                "control_zone_owner": (
+                    str(match.control_zone_owner) if match else ""
+                ),
+                "end_reason": str(match.end_reason) if match else "",
+                "error_message": str(match.error_message) if match else "",
             },
             "robots": robots,
         }
+        if role in PLAYER_ROLES:
+            robot = self.player_robots[role]
+            payload.update(
+                {
+                    "player_team": role,
+                    "player_robot": robot.name,
+                    "ros_receive_fps": round(
+                        self.latest_images[role].receive_fps(), 1
+                    ),
+                }
+            )
+        return payload
+
+    async def control_match(self, command: int):
+        if not self._control_client.service_is_ready():
+            raise RuntimeError("裁判控制服务不可用")
+        request = ControlMatch.Request()
+        request.command = command
+        ros_future = self._control_client.call_async(request)
+        loop = asyncio.get_running_loop()
+        bridge = loop.create_future()
+
+        def completed(future) -> None:
+            try:
+                response = future.result()
+                loop.call_soon_threadsafe(
+                    lambda value=response: (
+                        None if bridge.done() else bridge.set_result(value)
+                    )
+                )
+            # Forward ROS failure to the web event loop.
+            except Exception as exc:
+                loop.call_soon_threadsafe(
+                    lambda error=exc: (
+                        None if bridge.done() else bridge.set_exception(error)
+                    )
+                )
+
+        ros_future.add_done_callback(completed)
+        try:
+            return await asyncio.wait_for(bridge, timeout=CONTROL_TIMEOUT)
+        except asyncio.TimeoutError:
+            self._control_client.remove_pending_request(ros_future)
+            raise RuntimeError("裁判控制请求超时") from None
 
 
-class PlayerWebServer:
-    def __init__(self, node: PlayerGatewayNode) -> None:
+class CompetitionWebServer:
+    def __init__(self, node: CompetitionWebNode) -> None:
         self.node = node
-        self.controller: Optional[web.WebSocketResponse] = None
-        self.session_token: Optional[str] = None
-        self.peer_connections = set()
+        self.controllers: Dict[str, web.WebSocketResponse] = {}
+        self.role_registry = RoleRegistry()
+        self.tokens: Dict[str, str] = {}
+        self.peer_connections: Dict[str, Set[RTCPeerConnection]] = {}
         self.status_task: Optional[asyncio.Task] = None
+        self.referee_request_pending = False
         self._session_lock = asyncio.Lock()
         share = get_package_share_directory("recruitment_sim_player_web")
-        self.web_root = os.path.join(share, "recruitment_sim_player_web", "web")
+        self.web_root = os.path.join(
+            share, "recruitment_sim_player_web", "web"
+        )
 
     def application(self) -> web.Application:
         application = web.Application()
         application.router.add_get("/", self.index)
-        application.router.add_get("/ws", self.websocket)
+        application.router.add_get("/player/red", self.index)
+        application.router.add_get("/player/blue", self.index)
+        application.router.add_get("/referee", self.index)
+        application.router.add_get("/api/roles", self.roles)
+        application.router.add_get("/ws/{role}", self.websocket)
         application.router.add_post("/api/webrtc/offer", self.offer)
         application.router.add_static(
-            "/assets", os.path.join(self.web_root, "assets"), follow_symlinks=True
+            "/assets",
+            os.path.join(self.web_root, "assets"),
+            follow_symlinks=True,
         )
         application.on_startup.append(self.on_startup)
         application.on_cleanup.append(self.on_cleanup)
@@ -332,8 +467,26 @@ class PlayerWebServer:
     async def index(self, _request: web.Request) -> web.Response:
         return web.FileResponse(os.path.join(self.web_root, "index.html"))
 
+    async def roles(self, _request: web.Request) -> web.Response:
+        async with self._session_lock:
+            occupied = {
+                role: self.role_registry.occupied(role)
+                for role in ALL_ROLES
+            }
+        return web.json_response(
+            {
+                "roles": {
+                    role: {"occupied": occupied[role], "available": True}
+                    for role in sorted(ALL_ROLES)
+                },
+                "referee_online": self.node.match_online(),
+            }
+        )
+
     async def on_startup(self, _application: web.Application) -> None:
-        self.node.latest_image.attach_loop(asyncio.get_running_loop())
+        loop = asyncio.get_running_loop()
+        for image in self.node.latest_images.values():
+            image.attach_loop(loop)
         self.status_task = asyncio.create_task(self.send_status_loop())
 
     async def on_cleanup(self, _application: web.Application) -> None:
@@ -341,40 +494,41 @@ class PlayerWebServer:
             self.status_task.cancel()
             await asyncio.gather(self.status_task, return_exceptions=True)
         if rclpy.ok():
-            self.node.publish_neutral()
-        if self.controller is not None:
-            await self.controller.close()
+            for team in PLAYER_ROLES:
+                self.node.publish_neutral(team)
+        for socket in list(self.controllers.values()):
+            await socket.close()
+        peers = [
+            peer
+            for group in self.peer_connections.values()
+            for peer in group
+        ]
         await asyncio.gather(
-            *(pc.close() for pc in list(self.peer_connections)),
-            return_exceptions=True,
+            *(peer.close() for peer in peers), return_exceptions=True
         )
 
     async def websocket(self, request: web.Request) -> web.WebSocketResponse:
+        try:
+            role = validate_role(request.match_info["role"])
+        except ValueError:
+            raise web.HTTPNotFound(text="unknown role")
         socket = web.WebSocketResponse(heartbeat=5.0)
         await socket.prepare(request)
-        async with self._session_lock:
-            if self.controller is not None and not self.controller.closed:
-                await socket.send_json(
-                    {
-                        "type": "occupied",
-                        "player_team": self.node.player_team,
-                        "player_robot": self.node.player_robot.name,
-                    }
-                )
-                await socket.close()
-                return socket
-            self.controller = socket
-            self.session_token = secrets.token_urlsafe(24)
-            token = self.session_token
-        await socket.send_json(
-            {
-                "type": "ready",
-                "token": token,
-                "player_team": self.node.player_team,
-                "player_robot": self.node.player_robot.name,
-            }
-        )
+        token = await self.claim_role(role, socket)
+        if token is None:
+            await socket.send_json({"type": "occupied", "role": role})
+            await socket.close()
+            return socket
+        ready = {"type": "ready", "role": role, "token": token}
+        if role in PLAYER_ROLES:
+            ready.update(
+                {
+                    "player_team": role,
+                    "player_robot": self.node.player_robots[role].name,
+                }
+            )
         try:
+            await socket.send_json(ready)
             async for message in socket:
                 if message.type != WSMsgType.TEXT:
                     continue
@@ -382,35 +536,126 @@ class PlayerWebServer:
                     payload = json.loads(message.data)
                     kind = payload.get("type")
                     if kind == "input":
-                        snapshot = parse_input(payload)
-                        self.node.publish_input(snapshot)
+                        if role not in PLAYER_ROLES:
+                            raise ValueError(
+                                "referee role cannot publish player input"
+                            )
+                        self.node.publish_input(role, parse_input(payload))
+                    elif kind == "referee_command":
+                        if role != "referee":
+                            raise ValueError(
+                                "player role cannot control the match"
+                            )
+                        await self.handle_referee_command(socket, payload)
                     elif kind == "ping":
                         await socket.send_json(
                             {"type": "pong", "sent_at": payload.get("sent_at")}
                         )
                 except (ValueError, TypeError, json.JSONDecodeError) as exc:
-                    await socket.send_json({"type": "error", "message": str(exc)})
-        finally:
-            async with self._session_lock:
-                if self.controller is socket:
-                    self.node.publish_neutral()
-                    self.controller = None
-                    self.session_token = None
-                    peers = list(self.peer_connections)
-                    await asyncio.gather(
-                        *(peer.close() for peer in peers), return_exceptions=True
+                    await socket.send_json(
+                        {"type": "error", "message": str(exc)}
                     )
-                    self.peer_connections.difference_update(peers)
+        finally:
+            await self.release_role(role, socket, token)
         return socket
+
+    async def claim_role(
+        self, role: str, socket: web.WebSocketResponse
+    ) -> Optional[str]:
+        async with self._session_lock:
+            if not self.role_registry.acquire(role, socket):
+                return None
+            token = secrets.token_urlsafe(24)
+            self.controllers[role] = socket
+            self.tokens[role] = token
+            self.peer_connections[token] = set()
+            return token
+
+    async def release_role(
+        self,
+        role: str,
+        socket: web.WebSocketResponse,
+        token: str,
+    ) -> None:
+        async with self._session_lock:
+            if self.controllers.get(role) is not socket:
+                return
+            self.controllers.pop(role, None)
+            self.role_registry.release(role, socket)
+            self.tokens.pop(role, None)
+            peers = list(self.peer_connections.pop(token, set()))
+        if role in PLAYER_ROLES and rclpy.ok():
+            self.node.publish_neutral(role)
+        await asyncio.gather(
+            *(peer.close() for peer in peers), return_exceptions=True
+        )
+
+    async def handle_referee_command(self, socket, payload: dict) -> None:
+        request_id = payload.get("request_id")
+        command_name = payload.get("command")
+        if not isinstance(request_id, int) or isinstance(request_id, bool):
+            raise ValueError("request_id must be an integer")
+        if command_name not in CONTROL_COMMANDS:
+            raise ValueError("unknown referee command")
+        if self.referee_request_pending:
+            await self.send_referee_result(
+                socket, request_id, False, "已有裁判控制请求正在执行"
+            )
+            return
+        state = self.node.current_match_state()
+        if state is None:
+            await self.send_referee_result(socket, request_id, False, "裁判节点离线")
+            return
+        if not referee_command_allowed(command_name, state):
+            await self.send_referee_result(
+                socket, request_id, False, "当前比赛状态不允许该操作"
+            )
+            return
+        self.referee_request_pending = True
+        try:
+            response = await self.node.control_match(
+                CONTROL_COMMANDS[command_name]
+            )
+            await self.send_referee_result(
+                socket,
+                request_id,
+                bool(response.accepted),
+                str(response.message),
+            )
+        # Keep the referee page alive on ROS client failures.
+        except Exception as exc:
+            await self.send_referee_result(socket, request_id, False, str(exc))
+        finally:
+            self.referee_request_pending = False
+
+    @staticmethod
+    async def send_referee_result(
+        socket, request_id, accepted, message
+    ) -> None:
+        await socket.send_json(
+            {
+                "type": "referee_result",
+                "request_id": request_id,
+                "accepted": accepted,
+                "message": message,
+            }
+        )
 
     async def offer(self, request: web.Request) -> web.Response:
         payload = await request.json()
-        if not self.session_token or payload.get("token") != self.session_token:
+        role = payload.get("role")
+        token = payload.get("token")
+        peers = self.peer_connections.get(token)
+        if (
+            role not in PLAYER_ROLES
+            or self.tokens.get(role) != token
+            or peers is None
+        ):
             raise web.HTTPForbidden(text="no active player session")
         peer = RTCPeerConnection(RTCConfiguration(iceServers=[]))
-        self.peer_connections.add(peer)
+        peers.add(peer)
         transceiver = peer.addTransceiver(
-            RosVideoTrack(self.node.latest_image), direction="sendonly"
+            RosVideoTrack(self.node.latest_images[role]), direction="sendonly"
         )
         codecs = [
             codec
@@ -424,36 +669,47 @@ class PlayerWebServer:
         async def connection_state_changed() -> None:
             if peer.connectionState in {"failed", "closed"}:
                 await peer.close()
-                self.peer_connections.discard(peer)
+                self.peer_connections.get(token, set()).discard(peer)
 
         offer = RTCSessionDescription(sdp=payload["sdp"], type=payload["type"])
         await peer.setRemoteDescription(offer)
         answer = await peer.createAnswer()
         await peer.setLocalDescription(answer)
         return web.json_response(
-            {"sdp": peer.localDescription.sdp, "type": peer.localDescription.type}
+            {
+                "sdp": peer.localDescription.sdp,
+                "type": peer.localDescription.type,
+            }
         )
 
     async def send_status_loop(self) -> None:
         while True:
             await asyncio.sleep(0.1)
-            socket = self.controller
-            if socket is not None and not socket.closed:
+            for role, socket in list(self.controllers.items()):
+                if socket.closed:
+                    continue
                 try:
-                    await socket.send_json(self.node.status_payload())
+                    payload = self.node.status_payload(role)
+                    if role == "referee":
+                        payload["request_pending"] = (
+                            self.referee_request_pending
+                        )
+                    await socket.send_json(payload)
                 except (ConnectionError, RuntimeError):
                     pass
 
 
-async def run_server(node: PlayerGatewayNode) -> None:
-    server = PlayerWebServer(node)
+async def run_server(node: CompetitionWebNode) -> None:
+    server = CompetitionWebServer(node)
     runner = web.AppRunner(server.application())
     await runner.setup()
     host = node.get_parameter("bind_address").value
     port = int(node.get_parameter("port").value)
     site = web.TCPSite(runner, host=host, port=port)
     await site.start()
-    node.get_logger().info(f"player web server listening on http://{host}:{port}")
+    node.get_logger().info(
+        f"competition web server listening on http://{host}:{port}"
+    )
     try:
         await asyncio.Event().wait()
     finally:
@@ -462,7 +718,7 @@ async def run_server(node: PlayerGatewayNode) -> None:
 
 def main(args=None) -> None:
     rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
-    node = PlayerGatewayNode()
+    node = CompetitionWebNode()
     executor = MultiThreadedExecutor(num_threads=2)
     executor.add_node(node)
     ros_thread = threading.Thread(target=executor.spin, daemon=True)

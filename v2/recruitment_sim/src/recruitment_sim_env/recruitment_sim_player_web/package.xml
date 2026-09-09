@@ -3,12 +3,14 @@
 <package format="3">
   <name>recruitment_sim_player_web</name>
   <version>0.1.0</version>
-  <description>Browser player HUD, WebRTC camera streaming and ROS 2 input gateway.</description>
+  <description>Unified browser player and referee UI with WebRTC and ROS 2 integration.</description>
   <maintainer email="maintainers@example.com">Recruitment Simulation Maintainers</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_python</buildtool_depend>
   <exec_depend>python3-aiohttp</exec_depend>
+  <exec_depend>python3-aiortc</exec_depend>
+  <exec_depend>python3-av</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
   <exec_depend>rclpy</exec_depend>

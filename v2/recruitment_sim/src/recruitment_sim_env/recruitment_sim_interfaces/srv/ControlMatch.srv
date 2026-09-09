@@ -5,4 +5,3 @@ uint8 command
 ---
 bool accepted
 string message
-uint64 round_id

@@ -12,7 +12,6 @@ uint8 BLUE_WIN=2
 uint8 DRAW=3
 uint8 ABORTED=4
 std_msgs/Header header
-uint64 round_id
 uint8 state
 float64 elapsed_seconds
 float64 remaining_seconds

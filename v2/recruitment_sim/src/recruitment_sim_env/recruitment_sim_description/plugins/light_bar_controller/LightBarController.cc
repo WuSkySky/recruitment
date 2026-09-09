@@ -16,6 +16,7 @@
 
 #include <ignition/gazebo/components/ParentEntity.hh>
 #include <ignition/gazebo/components/Visual.hh>
+#include <ignition/gazebo/components/VisualCmd.hh>
 #include <ignition/gazebo/components/Name.hh>
 #include <ignition/gazebo/components/Material.hh>
 
@@ -86,7 +87,7 @@ public:
     bool isInit{false};
     // cmd
     // 0:no light, 1:red light, 2:blue light, 3:yellow light, 4:white light
-    int targetState;
+    int targetState{0};
     bool change{false};
     std::mutex targetMutex;
 };
@@ -144,9 +145,8 @@ void LightBarController::Configure(const Entity &_entity,
 void LightBarController::PreUpdate(const ignition::gazebo::UpdateInfo &_info,
                              ignition::gazebo::EntityComponentManager &_ecm)
 {
-    if(_info.paused){
-        return;
-    }
+    // Material changes are independent of physics and must work while paused.
+    (void)_info;
     if(!this->dataPtr->isInit){
         this->dataPtr->Init(_ecm);
         this->dataPtr->isInit = true;
@@ -165,6 +165,10 @@ void LightBarController::PreUpdate(const ignition::gazebo::UpdateInfo &_info,
 /******************implementation for LightBarControllerPrivate******************/
 void LightBarControllerPrivate::OnCmd(const ignition::msgs::Int32 &_msg)
 {
+    if (_msg.data() < 0 || _msg.data() > 4) {
+        ignwarn << "LightBarController: invalid color " << _msg.data() << std::endl;
+        return;
+    }
     std::lock_guard<std::mutex> lock(this->targetMutex);
     this->targetState = _msg.data();
     this->change = true;
@@ -194,6 +198,19 @@ void LightBarControllerPrivate::UpdateVisualEntities(
 {
     const auto targetMaterial = GetMaterial(this->targetState);
     for(auto &info: this->visualEntityInfos){
+        // Fortress renderers consume VisualCmd for existing visuals. Updating
+        // Material alone changes ECM state but leaves the rendered mesh white.
+        msgs::Visual command;
+        command.set_id(info.entity);
+        *command.mutable_material() = convert<msgs::Material>(targetMaterial);
+        auto visualCmd = _ecm.Component<components::VisualCmd>(info.entity);
+        if (visualCmd == nullptr) {
+            _ecm.CreateComponent(info.entity, components::VisualCmd(command));
+        } else {
+            visualCmd->Data() = command;
+            _ecm.SetChanged(info.entity, components::VisualCmd::typeId);
+        }
+        // Also retain the material for scene creation / late-joining clients.
         auto material = _ecm.Component<components::Material>(info.entity);
         if (material == nullptr) {
             _ecm.CreateComponent(info.entity, components::Material(targetMaterial));

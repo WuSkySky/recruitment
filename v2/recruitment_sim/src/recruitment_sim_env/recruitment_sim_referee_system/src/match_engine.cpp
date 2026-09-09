@@ -19,7 +19,9 @@ MatchEngine::MatchEngine(std::vector<RobotConfig> configs, ZoneConfig zone)
 int MatchEngine::team(const std::string & name) {return name == "red" ? 0 : name == "blue" ? 1 : -1;}
 bool MatchEngine::reset(uint64_t round)
 {
-  if (state_ == RESETTING || state_ == ENDING || round <= round_) {return false;}
+  if ((state_ != TRAINING && state_ != FINISHED && state_ != ERROR) || round <= round_) {
+    return false;
+  }
   // Non-team robots remain useful for training, but cannot enter a scored match.
   for (const auto & config : configs_) {if (team(config.team) < 0) {return false;}}
   round_ = round;
