@@ -22,7 +22,10 @@ ROBOT_TOPIC_TYPES = {
 }
 SUPPORTED_ROBOTS = set(ROBOT_TOPIC_TYPES)
 SUPPORTED_COLORS = {"none", "red", "blue", "yellow", "white"}
-TEAM_DOMAIN_IDS = {"red": "20", "blue": "30"}
+ROBOT_DOMAIN_IDS = {
+    "red/infantry": "20", "red/sentry": "21",
+    "blue/infantry": "30", "blue/sentry": "31",
+}
 
 
 def _robot_namespace(robot):
@@ -183,8 +186,8 @@ def _spawn_robots(context: LaunchContext):
                 executable="parameter_bridge",
                 name=f"{robot_name}_bridge",
                 additional_env=(
-                    {"ROS_DOMAIN_ID": TEAM_DOMAIN_IDS[robot["color"]]}
-                    if robot["color"] in TEAM_DOMAIN_IDS else {}
+                    {"ROS_DOMAIN_ID": ROBOT_DOMAIN_IDS[robot_namespace]}
+                    if robot_namespace in ROBOT_DOMAIN_IDS else {}
                 ),
                 output="screen",
                 arguments=[
@@ -226,13 +229,14 @@ def _spawn_robots(context: LaunchContext):
         )
     )
 
-    for team, domain in TEAM_DOMAIN_IDS.items():
-        robots = [robot for robot in config["robots"] if robot["color"] == team]
+    for namespace, domain in ROBOT_DOMAIN_IDS.items():
+        team = namespace.split("/")[0]
+        robots = [robot for robot in config["robots"] if _robot_namespace(robot) == namespace]
         if robots:
             actions.append(Node(
                 package="recruitment_sim_bringup",
                 executable="team_topic_bridge",
-                name=f"{team}_topic_bridge",
+                name=f"{namespace.replace('/', '_')}_topic_bridge",
                 output="screen",
                 parameters=[{
                     "team": team,
@@ -246,8 +250,8 @@ def _spawn_robots(context: LaunchContext):
 
 
 def generate_launch_description():
-    if os.environ.get("ROS_DOMAIN_ID", "0") in TEAM_DOMAIN_IDS.values():
-        raise RuntimeError("Internal ROS_DOMAIN_ID must differ from team domains 20 and 30")
+    if int(os.environ.get("ROS_DOMAIN_ID", "0")) in {int(d) for d in ROBOT_DOMAIN_IDS.values()}:
+        raise RuntimeError("Internal ROS_DOMAIN_ID must differ from robot domains 20, 21, 30 and 31")
     bringup_share = get_package_share_directory("recruitment_sim_bringup")
     description_share = get_package_share_directory("recruitment_sim_description")
     ros_gz_share = get_package_share_directory("ros_gz_sim")
