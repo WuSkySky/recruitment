@@ -47,6 +47,7 @@ const localPending = ref(false);
 let socket: WebSocket | null = null;
 let reconnectTimer = 0;
 let requestSerial = 0;
+let exitTimer = 0;
 let shuttingDown = false;
 
 const connected = computed(
@@ -120,6 +121,8 @@ function connect(): void {
     } else if (message.type === "error") {
       localPending.value = false;
       operationText.value = message.message;
+    } else if (message.type === "released") {
+      finishExit();
     }
   });
   socket.addEventListener("close", () => {
@@ -144,10 +147,31 @@ function sendCommand(command: RefereeCommand): void {
   }));
 }
 
+function finishExit(): void {
+  window.clearTimeout(exitTimer);
+  window.location.assign("/");
+}
+
+function exitToSelector(): void {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  if (socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: "release" }));
+    exitTimer = window.setTimeout(() => {
+      socket?.close();
+      finishExit();
+    }, 1500);
+    return;
+  }
+  socket?.close();
+  finishExit();
+}
+
 onMounted(connect);
 onBeforeUnmount(() => {
   shuttingDown = true;
   window.clearTimeout(reconnectTimer);
+  window.clearTimeout(exitTimer);
   socket?.close();
 });
 </script>
@@ -159,7 +183,7 @@ onBeforeUnmount(() => {
         <span class="eyebrow">MATCH CONTROL</span>
         <h1>裁判系统</h1>
       </div>
-      <a href="/">返回终端选择</a>
+      <button class="referee-exit" type="button" @click="exitToSelector">返回终端选择</button>
       <div class="connection-pill" :class="{ online: connected }">
         <i></i>{{ connected ? "ONLINE" : connection === "occupied" ? "OCCUPIED" : "OFFLINE" }}
       </div>

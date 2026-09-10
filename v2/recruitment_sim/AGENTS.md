@@ -35,6 +35,7 @@
 ## 裁判系统现状与后续方向
 
 - 已新增独立 `recruitment_sim_referee_system` 包，默认随 bringup 启动；所有裁判通讯使用 `/referee_system` 前缀。
+- 完整比赛信息 `/referee_system/match/info`（`MatchInfo`）仅在内部域发布；`/referee_system/match/status`（`MatchStatus`）仅含比赛阶段 `state` 和已进行仿真秒数 `elapsed_seconds`，转发到四个选手域。
 - 弹丸插件仅报告实际发弹和首次碰撞事实，中央裁判节点负责有效装甲筛选、敌我判定、扣血、热量与执行器控制。
 - 当前按 RMUL 2026 的 17mm 规则实现：每发热量 +10、10Hz 冷却、普通/本局永久过热锁枪、敌方装甲伤害 20、装甲 50ms 检测间隔和战亡整机失能。
 - 每台 base 节点提供统一的 `SetRobotEnabled` 服务，可分别控制整机、底盘、云台和发射机构；失能不关闭传感器或反馈。

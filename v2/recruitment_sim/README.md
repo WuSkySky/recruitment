@@ -167,7 +167,7 @@ ROS_DOMAIN_ID=31 ros2 topic list --no-daemon
 | 机器人域 → 内部域 | 对应机器人 `cmd_chassis_vel`、`cmd_yaw_vel`、`cmd_pitch_vel`、`cmd_shoot` |
 | 内部域 → 机器人域 | 对应机器人四个 `feedback_*` 角度/速度反馈 |
 | 内部域 → 机器人域 | 对应机器人 `/referee_system/<robot_name>/status`、对应步兵 `player_input` |
-| 内部域 → 四个机器人域 | `/clock`、`/referee_system/match/status`（保留 transient-local） |
+| 内部域 → 四个机器人域 | `/clock`、`/referee_system/match/status`（仅比赛阶段和已进行秒数，保留 transient-local；`match/info` 不转发） |
 
 机器人基础控制与裁判继续在内部域通信，重置、使能、灯条以及其他服务均不转发。
 相机、IMU、点云和真值里程计仍由 Gazebo→ROS 桥直接发布到各机器人域，不经过小消息网关。
@@ -210,8 +210,10 @@ ros2 topic echo /referee_system/red_infantry_robot/status
 启动后处于 `TRAINING`，血量、热量和受击正常工作，但不计比赛时间和胜利点。比赛服务与状态为：
 
 - `/referee_system/match/control`：`ControlMatch` 服务；命令 `0` 开始裁判、`1` 人工结束、`2` 重置并恢复仿真。
-- `/referee_system/match/status`：10 Hz、可靠且 transient-local 的 `MatchStatus`，包含状态、
-  剩余时间、双方胜利点、攻击伤害、总剩余血量、占领方、结果和错误。
+- `/referee_system/match/info`：10 Hz、可靠且 transient-local 的 `MatchInfo`，保留原完整消息内容，包含时间戳、状态、
+  已进行/剩余时间、双方胜利点、攻击伤害、总剩余血量、占领方、有效占领机器人、结果和错误；仅在内部域发布，供网页后端等内部组件订阅，不转发到选手域。
+- `/referee_system/match/status`：10 Hz、可靠且 transient-local 的 `MatchStatus`，仅包含 `uint8 state`（比赛阶段）和
+  `float64 elapsed_seconds`（比赛已进行的仿真秒数），转发到四个选手域 20、21、30、31。阶段枚举值保持不变。
 
 ```bash
 ros2 service call /referee_system/match/control \
@@ -219,7 +221,7 @@ ros2 service call /referee_system/match/control \
 # 等待 MatchStatus.state 进入 READY（6），再开始裁判计时
 ros2 service call /referee_system/match/control \
   recruitment_sim_interfaces/srv/ControlMatch "{command: 0}"
-ros2 topic echo /referee_system/match/status
+ros2 topic echo /referee_system/match/info
 ```
 
 比赛时长 300 秒，双方从 200 胜利点开始。存活机器人的底盘中心进入中央 `3 × 3 m` 区域后按

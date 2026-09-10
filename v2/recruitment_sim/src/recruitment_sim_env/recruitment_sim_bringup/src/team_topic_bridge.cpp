@@ -78,6 +78,7 @@ int main(int argc, char ** argv)
     }
     forward<rosgraph_msgs::msg::Clock>(internal, external, "/clock", subscriptions,
       rclcpp::QoS(1).best_effort());
+    // Only phase and elapsed time cross domains; full match/info stays internal.
     forward<recruitment_sim_interfaces::msg::MatchStatus>(internal, external,
       "/referee_system/match/status", subscriptions, rclcpp::QoS(1).transient_local());
 

@@ -106,6 +106,27 @@ def test_three_roles_are_isolated(monkeypatch):
     asyncio.run(scenario())
 
 
+def test_release_ack_is_sent_after_role_is_free(monkeypatch):
+    monkeypatch.setattr(server_module.rclpy, "ok", lambda: True)
+    node, web_server = make_server(monkeypatch)
+
+    class ReleaseSocket(FakeSocket):
+        async def send_json(self, message):
+            assert not web_server.role_registry.occupied("red")
+            await super().send_json(message)
+
+    socket = ReleaseSocket()
+
+    async def scenario():
+        token = await web_server.claim_role("red", socket)
+        assert token is not None
+        await web_server.handle_release("red", socket, token)
+        assert socket.messages == [{"type": "released", "role": "red"}]
+        assert node.neutralized == ["red"]
+
+    asyncio.run(scenario())
+
+
 def test_referee_command_state_guard_and_result(monkeypatch):
     node, web_server = make_server(monkeypatch)
     socket = FakeSocket()

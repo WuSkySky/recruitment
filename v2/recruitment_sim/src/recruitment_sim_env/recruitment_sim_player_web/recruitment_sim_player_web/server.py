@@ -31,7 +31,7 @@ from rclpy.qos import (
 )
 from rclpy.signals import SignalHandlerOptions
 from recruitment_sim_interfaces.msg import (
-    MatchStatus,
+    MatchInfo,
     PlayerInput,
     RobotStatus,
 )
@@ -265,13 +265,13 @@ class CompetitionWebNode(Node):
             )
 
         self._state_lock = threading.Lock()
-        self._match: Optional[MatchStatus] = None
+        self._match: Optional[MatchInfo] = None
         self._match_received_at = 0.0
         self._robot_states: Dict[str, RobotStatus] = {}
         self._robot_received_at: Dict[str, float] = {}
         self._match_subscription = self.create_subscription(
-            MatchStatus,
-            "/referee_system/match/status",
+            MatchInfo,
+            "/referee_system/match/info",
             self._on_match,
             state_qos,
         )
@@ -297,7 +297,7 @@ class CompetitionWebNode(Node):
     def camera_domain_id(self, team: str) -> int:
         return int(self.get_parameter(f"{team}_camera_domain_id").value)
 
-    def _on_match(self, message: MatchStatus) -> None:
+    def _on_match(self, message: MatchInfo) -> None:
         with self._state_lock:
             self._match = message
             self._match_received_at = time.monotonic()
@@ -570,6 +570,9 @@ class CompetitionWebServer:
                         await socket.send_json(
                             {"type": "pong", "sent_at": payload.get("sent_at")}
                         )
+                    elif kind == "release":
+                        await self.handle_release(role, socket, token)
+                        break
                 except (ValueError, TypeError, json.JSONDecodeError) as exc:
                     await socket.send_json(
                         {"type": "error", "message": str(exc)}
@@ -608,6 +611,17 @@ class CompetitionWebServer:
         await asyncio.gather(
             *(peer.close() for peer in peers), return_exceptions=True
         )
+
+    async def handle_release(
+        self,
+        role: str,
+        socket: web.WebSocketResponse,
+        token: str,
+    ) -> None:
+        # Acknowledge only after the registry and associated media/input state
+        # have been cleared, so the selector can immediately reclaim the role.
+        await self.release_role(role, socket, token)
+        await socket.send_json({"type": "released", "role": role})
 
     async def handle_referee_command(self, socket, payload: dict) -> None:
         request_id = payload.get("request_id")

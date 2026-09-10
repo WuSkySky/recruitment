@@ -34,8 +34,7 @@ function roleStatus(role: WebRole): string {
 
 function openRole(role: WebRole): void {
   if (roles.value?.roles[role]?.occupied) return;
-  window.open(routeForRole(role), "_blank", "noopener");
-  window.setTimeout(() => void refreshRoles(), 350);
+  window.location.assign(routeForRole(role));
 }
 
 onMounted(() => {
@@ -50,7 +49,7 @@ onBeforeUnmount(() => window.clearInterval(pollTimer));
     <header class="selector-heading">
       <span>RECRUITMENT SIMULATION</span>
       <h1>比赛终端</h1>
-      <p>选择需要打开的界面。每个角色仅允许一个活动会话。</p>
+      <p>选择需要进入的界面。每个角色仅允许一个活动会话。</p>
     </header>
 
     <section class="role-grid">

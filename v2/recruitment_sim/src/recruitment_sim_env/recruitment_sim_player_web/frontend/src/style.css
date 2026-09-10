@@ -46,6 +46,29 @@ button {
   background: #000;
 }
 
+.player-exit {
+  position: absolute;
+  top: 18px;
+  right: 22px;
+  z-index: 30;
+  padding: 9px 13px;
+  border: 1px solid rgba(143, 170, 178, 0.55);
+  background: rgba(8, 14, 17, 0.82);
+  color: #b9cbd0;
+  cursor: pointer;
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.player-exit:hover {
+  border-color: #d9edf2;
+  color: #fff;
+}
+
+.arena:fullscreen .player-exit {
+  display: none;
+}
+
 .scoreboard {
   position: absolute;
   top: 0;
@@ -615,10 +638,13 @@ button {
   letter-spacing: 0.08em;
 }
 
-.referee-header a {
+.referee-exit {
+  padding: 0;
+  border: 0;
+  background: none;
   color: #8faab2;
+  cursor: pointer;
   font-size: 13px;
-  text-decoration: none;
 }
 
 .connection-pill {
@@ -764,7 +790,7 @@ button {
 
 @media (max-width: 540px) {
   .referee-header { grid-template-columns: 1fr auto; }
-  .referee-header a { display: none; }
+  .referee-exit { display: none; }
   .referee-robots { grid-template-columns: 1fr; }
   .versus-score { gap: 8px; }
   .versus-score article { gap: 2px 8px; }

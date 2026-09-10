@@ -60,6 +60,7 @@ let clockTimer = 0;
 let metricsTimer = 0;
 let frameCounter = 0;
 let hitTimer = 0;
+let exitTimer = 0;
 let shuttingDown = false;
 let videoCallbackStarted = false;
 
@@ -115,6 +116,28 @@ function releaseInput(): void {
   sendInput(false);
 }
 
+function finishExit(): void {
+  window.clearTimeout(exitTimer);
+  window.location.assign("/");
+}
+
+function exitToSelector(): void {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  releaseInput();
+  if (document.pointerLockElement) document.exitPointerLock();
+  if (socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: "release" }));
+    exitTimer = window.setTimeout(() => {
+      socket?.close();
+      finishExit();
+    }, 1500);
+    return;
+  }
+  socket?.close();
+  finishExit();
+}
+
 function connectWebSocket(): void {
   if (shuttingDown) return;
   connection.value = "connecting";
@@ -138,6 +161,8 @@ function connectWebSocket(): void {
       lastStatusAt.value = performance.now();
     } else if (message.type === "pong") {
       websocketRtt.value = Math.max(0, performance.now() - Number(message.sent_at));
+    } else if (message.type === "released") {
+      finishExit();
     }
   });
   socket.addEventListener("close", () => {
@@ -318,6 +343,7 @@ onBeforeUnmount(() => {
   window.clearInterval(metricsTimer);
   window.clearTimeout(reconnectTimer);
   window.clearTimeout(hitTimer);
+  window.clearTimeout(exitTimer);
   document.removeEventListener("visibilitychange", onVisibilityChange);
   peer?.close();
   socket?.close();
@@ -332,6 +358,8 @@ onBeforeUnmount(() => {
     @click="showBlockingOverlay && enterGame()"
   >
     <video ref="video" class="camera" autoplay muted playsinline />
+
+    <button class="player-exit" type="button" @click.stop="exitToSelector">返回终端选择</button>
 
     <header class="scoreboard">
       <section class="score-wing red-wing">

@@ -14,6 +14,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include "recruitment_sim_interfaces/msg/robot_status.hpp"
 #include "recruitment_sim_interfaces/msg/match_status.hpp"
+#include "recruitment_sim_interfaces/msg/match_info.hpp"
 #include "recruitment_sim_interfaces/srv/set_robot_enabled.hpp"
 #include "recruitment_sim_interfaces/srv/reset_robot.hpp"
 #include "recruitment_sim_interfaces/srv/control_match.hpp"
@@ -26,6 +27,7 @@ using Reset = recruitment_sim_interfaces::srv::ResetRobot;
 using Initialize = recruitment_sim_interfaces::srv::InitializeModule;
 using Control = recruitment_sim_interfaces::srv::ControlMatch;
 using Status = recruitment_sim_interfaces::msg::MatchStatus;
+using Info = recruitment_sim_interfaces::msg::MatchInfo;
 using RobotStatus = recruitment_sim_interfaces::msg::RobotStatus;
 class RefereeSystemNode : public rclcpp::Node
 {
@@ -68,7 +70,8 @@ public:
         "/referee_system/" + names[i] + "/initialize_odometry");
     }
     match_ = std::make_unique<MatchEngine>(configs, ZoneConfig{zone, bounds[0], bounds[1], bounds[2], bounds[3]});
-    publisher_ = create_publisher<Status>("/referee_system/match/status", qos);
+    info_publisher_ = create_publisher<Info>("/referee_system/match/info", qos);
+    status_publisher_ = create_publisher<Status>("/referee_system/match/status", qos);
     service_ = create_service<Control>("/referee_system/match/control",
       [this](const std::shared_ptr<Control::Request> req, std::shared_ptr<Control::Response> res) {
         if (req->command == Control::Request::START) {
@@ -359,7 +362,7 @@ private:
   }
   void publish()
   {
-    Status s; s.header.stamp = now(); s.state = match_->state();
+    Info s; s.header.stamp = now(); s.state = match_->state();
     s.elapsed_seconds = match_->elapsed(); s.remaining_seconds = 300 - s.elapsed_seconds;
     s.red_victory_points = match_->points()[0]; s.blue_victory_points = match_->points()[1];
     auto d = match_->damage(); auto h = match_->hp();
@@ -367,7 +370,9 @@ private:
     s.red_remaining_hp = h[0]; s.blue_remaining_hp = h[1];
     s.control_zone_owner = match_->owner() < 0 ? "" : match_->owner() == 0 ? "red" : "blue";
     s.eligible_robots = match_->eligible(); s.result = match_->result();
-    s.end_reason = match_->reason(); s.error_message = match_->error(); publisher_->publish(s);
+    s.end_reason = match_->reason(); s.error_message = match_->error(); info_publisher_->publish(s);
+    Status status; status.state = s.state; status.elapsed_seconds = s.elapsed_seconds;
+    status_publisher_->publish(status);
     for (const auto & item : match_->referee().robots()) {
       const auto & r = item.second; RobotStatus msg; msg.header.stamp = s.header.stamp;
       msg.robot_name = item.first; msg.max_hp = r.config.max_hp; msg.current_hp = r.current_hp;
@@ -388,7 +393,8 @@ private:
   std::string simulation_command_;
   std::string config_payload_;
   std::map<std::string, rclcpp::Publisher<RobotStatus>::SharedPtr> publishers_;
-  rclcpp::Publisher<Status>::SharedPtr publisher_;
+  rclcpp::Publisher<Info>::SharedPtr info_publisher_;
+  rclcpp::Publisher<Status>::SharedPtr status_publisher_;
   rclcpp::Service<Control>::SharedPtr service_;
   std::map<std::string, rclcpp::Client<Enable>::SharedPtr> enables_;
   std::map<std::string, rclcpp::Client<Reset>::SharedPtr> resets_;
