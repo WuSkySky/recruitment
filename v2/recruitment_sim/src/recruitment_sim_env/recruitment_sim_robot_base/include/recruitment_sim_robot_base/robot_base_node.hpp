@@ -31,6 +31,7 @@
 #include "recruitment_sim_interfaces/srv/set_light_color.hpp"
 #include "recruitment_sim_interfaces/srv/set_robot_enabled.hpp"
 #include "recruitment_sim_interfaces/srv/reset_robot.hpp"
+#include "recruitment_sim_interfaces/srv/initialize_module.hpp"
 
 namespace recruitment_sim_robot_base
 {
@@ -74,6 +75,10 @@ private:
   EnableState enable_state_;
   uint64_t round_id_{0};
   rclcpp::Service<recruitment_sim_interfaces::srv::ResetRobot>::SharedPtr reset_service_;
+  rclcpp::Service<recruitment_sim_interfaces::srv::InitializeModule>::SharedPtr
+    initialize_odometry_service_;
+  uint64_t odometry_initialization_round_id_{0};
+  bool has_odometry_initialization_round_{false};
 };
 
 }  // namespace recruitment_sim_robot_base

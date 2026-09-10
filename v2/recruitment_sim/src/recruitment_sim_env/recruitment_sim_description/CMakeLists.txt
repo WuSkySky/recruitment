@@ -57,6 +57,8 @@ ament_environment_hooks("${CMAKE_CURRENT_SOURCE_DIR}/env-hooks/gazebo.dsv.in")
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_direction_noise test/test_direction_noise.cpp)
+  target_link_libraries(test_direction_noise ignition-gazebo6::ignition-gazebo6)
   ament_add_gtest(test_light_bar_controller test/test_light_bar_controller.cpp)
   target_link_libraries(test_light_bar_controller ignition-gazebo6::ignition-gazebo6)
 endif()

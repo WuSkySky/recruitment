@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import math
 import xml.etree.ElementTree as ET
 from typing import List
 
@@ -103,6 +104,16 @@ def _validate_config(config):
                 f"{', '.join(sorted(missing_referee))}"
             )
         referee = robot["referee"]
+        noise = robot.get("projectile_noise", {})
+        if not isinstance(noise, dict):
+            raise RuntimeError(f"robots[{index}].projectile_noise must be a mapping")
+        for field in ("yaw_angle_variance", "pitch_angle_variance"):
+            value = noise.get(field, 0.0)
+            if (not isinstance(value, (int, float)) or isinstance(value, bool)
+                    or not math.isfinite(value) or value < 0):
+                raise RuntimeError(
+                    f"robots[{index}].projectile_noise.{field} must be finite and non-negative"
+                )
         if not isinstance(referee["max_hp"], int) or referee["max_hp"] <= 0:
             raise RuntimeError(f"robots[{index}].referee.max_hp must be a positive integer")
         for field in ("heat_limit", "cooling_rate"):
@@ -138,7 +149,12 @@ def _spawn_robots(context: LaunchContext):
 
         xmacro = XMLMacro4sdf()
         xmacro.set_xml_file(xmacro_path)
-        xmacro.generate({"global_initial_color": robot["color"]})
+        noise = robot.get("projectile_noise", {})
+        xmacro.generate({
+            "global_initial_color": robot["color"],
+            "projectile_yaw_angle_variance": noise.get("yaw_angle_variance", 0.0),
+            "projectile_pitch_angle_variance": noise.get("pitch_angle_variance", 0.0),
+        })
         robot_sdf = xmacro.to_string()
         root = ET.fromstring(robot_sdf)
         model = root.find("model")
@@ -316,6 +332,8 @@ def generate_launch_description():
                         "port": ParameterValue(
                             LaunchConfiguration("player_web_port"), value_type=int
                         ),
+                        "red_camera_domain_id": int(ROBOT_DOMAIN_IDS["red/infantry"]),
+                        "blue_camera_domain_id": int(ROBOT_DOMAIN_IDS["blue/infantry"]),
                     }
                 ],
                 arguments=["--ros-args", "--log-level", LaunchConfiguration("log_level")],

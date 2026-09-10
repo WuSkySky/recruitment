@@ -25,6 +25,7 @@
 #include "ignition/transport/Node.hh"
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/float64.hpp"
+#include "recruitment_sim_robot_base/gaussian_noise.hpp"
 
 namespace recruitment_sim_robot_base
 {
@@ -37,7 +38,13 @@ public:
     std::shared_ptr<ignition::transport::Node> gz_node,
     const std::string & gz_pitch_cmd_topic,
     const std::string & gz_yaw_cmd_topic,
-    const std::string & gz_joint_state_topic);
+    const std::string & gz_joint_state_topic,
+    double pitch_command_variance,
+    double yaw_command_variance,
+    double pitch_velocity_feedback_variance,
+    double yaw_velocity_feedback_variance,
+    double pitch_angle_feedback_variance,
+    double yaw_angle_feedback_variance);
   void enable(bool enabled);
 
 private:
@@ -71,6 +78,12 @@ private:
   bool has_yaw_feedback_{false};
   bool has_pitch_feedback_{false};
   std::atomic<bool> enabled_{false};
+  GaussianNoise pitch_command_noise_;
+  GaussianNoise yaw_command_noise_;
+  GaussianNoise pitch_velocity_feedback_noise_;
+  GaussianNoise yaw_velocity_feedback_noise_;
+  GaussianNoise pitch_angle_feedback_noise_;
+  GaussianNoise yaw_angle_feedback_noise_;
 };
 
 }  // namespace recruitment_sim_robot_base

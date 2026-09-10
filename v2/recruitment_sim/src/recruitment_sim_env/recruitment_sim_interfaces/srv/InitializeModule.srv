@@ -1,0 +1,5 @@
+# Internal lifecycle barrier for stateful simulation modules.
+uint64 round_id
+---
+bool success
+string message

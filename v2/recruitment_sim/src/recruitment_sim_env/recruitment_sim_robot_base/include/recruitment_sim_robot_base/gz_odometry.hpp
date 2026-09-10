@@ -22,6 +22,7 @@
 #include "hardware_interface.hpp"
 #include "rclcpp/clock.hpp"
 #include "nav_msgs/msg/odometry.hpp"
+#include "recruitment_sim_robot_base/gaussian_noise.hpp"
 
 namespace recruitment_sim_robot_base
 {
@@ -32,7 +33,10 @@ public:
   IgnOdometry(
     rclcpp::Node::SharedPtr node,
     std::shared_ptr<ignition::transport::Node> gz_node,
-    const std::string & gz_odom_topic);
+    const std::string & gz_odom_topic,
+    double x_velocity_feedback_variance,
+    double y_velocity_feedback_variance,
+    double yaw_velocity_feedback_variance);
   ~IgnOdometry() {}
 
   void enable(bool enable) {enable_ = enable;}
@@ -46,6 +50,9 @@ private:
   std::shared_ptr<ignition::transport::Node> gz_node_;
   bool enable_{false};
   std::shared_ptr<DataSensor<nav_msgs::msg::Odometry>> odometry_sensor_;
+  GaussianNoise x_velocity_feedback_noise_;
+  GaussianNoise y_velocity_feedback_noise_;
+  GaussianNoise yaw_velocity_feedback_noise_;
 };
 
 }  // namespace recruitment_sim_robot_base

@@ -45,6 +45,7 @@
 #include <ignition/math/Vector3.hh>
 
 #include "ProjectileShooter.hh"
+#include "DirectionNoise.hh"
 #include <sdf/Model.hh>
 #include <sdf/Root.hh>
 
@@ -98,6 +99,7 @@ public:
     math::Pose3d shooterOffset;
     // parameters of shooter
     double shootVel { 18 };
+    recruitment_sim::DirectionNoise directionNoise;
     double shootPeriodMS { 50 };
     // projectile
     sdf::Model projectileSdfModel;
@@ -148,6 +150,14 @@ void ProjectileShooter::Configure(const Entity& _entity,
         this->dataPtr->shootVel = _sdf->Get<double>("projectile_velocity");
     }
     std::string projectile_uri;
+    try {
+        this->dataPtr->directionNoise.Configure(
+            _sdf->Get<double>("yaw_angle_variance", 0.0).first,
+            _sdf->Get<double>("pitch_angle_variance", 0.0).first);
+    } catch (const std::invalid_argument & error) {
+        ignerr << "ProjectileShooter: " << error.what() << std::endl;
+        return;
+    }
     if (_sdf->HasElement("projectile_uri")) {
         projectile_uri = _sdf->Get<std::string>("projectile_uri");
     } else {
@@ -247,7 +257,8 @@ void ProjectileShooterPrivate::PreUpdate(const ignition::gazebo::UpdateInfo& _in
         this->creator->SetParent(projectileModel, this->world);
         recruitment_sim::RegisterProjectile(projectileModel);
         //update projectile,set velocity and create ContactSensorData
-        math::Vector3d tmpVel(this->shootVel, 0, 0);
+        // LinearVelocityCmd is in the entity frame; the model already has the muzzle pose.
+        const auto tmpVel = this->directionNoise.Sample(this->shootVel);
         _ecm.CreateComponent(projectileModel, components::LinearVelocityCmd({ tmpVel }));
         Entity projectileLink = Model(projectileModel).Links(_ecm)[0];
         Entity projectileCollision = Link(projectileLink).Collisions(_ecm)[0];

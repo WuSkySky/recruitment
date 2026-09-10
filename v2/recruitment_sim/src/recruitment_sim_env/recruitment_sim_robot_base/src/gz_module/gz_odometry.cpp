@@ -24,8 +24,14 @@ namespace recruitment_sim_robot_base
 IgnOdometry::IgnOdometry(
   rclcpp::Node::SharedPtr node,
   std::shared_ptr<ignition::transport::Node> gz_node,
-  const std::string & gz_odom_topic)
-: node_(node), gz_node_(gz_node)
+  const std::string & gz_odom_topic,
+  double x_velocity_feedback_variance,
+  double y_velocity_feedback_variance,
+  double yaw_velocity_feedback_variance)
+: node_(node), gz_node_(gz_node),
+  x_velocity_feedback_noise_(x_velocity_feedback_variance),
+  y_velocity_feedback_noise_(y_velocity_feedback_variance),
+  yaw_velocity_feedback_noise_(yaw_velocity_feedback_variance)
 {
   gz_node_->Subscribe(gz_odom_topic, &IgnOdometry::gz_odometry_cb, this);
   odometry_sensor_ = std::make_shared<DataSensor<nav_msgs::msg::Odometry>>();
@@ -45,9 +51,10 @@ void IgnOdometry::gz_odometry_cb(const ignition::msgs::Odometry & msg)
   odom_msg.pose.pose.orientation.y = pose.orientation().y();
   odom_msg.pose.pose.orientation.z = pose.orientation().z();
   odom_msg.pose.pose.orientation.w = pose.orientation().w();
-  odom_msg.twist.twist.linear.x = msg.twist().linear().x();
-  odom_msg.twist.twist.linear.y = msg.twist().linear().y();
-  odom_msg.twist.twist.angular.z = msg.twist().angular().z();
+  odom_msg.twist.twist.linear.x = x_velocity_feedback_noise_.apply(msg.twist().linear().x());
+  odom_msg.twist.twist.linear.y = y_velocity_feedback_noise_.apply(msg.twist().linear().y());
+  odom_msg.twist.twist.angular.z =
+    yaw_velocity_feedback_noise_.apply(msg.twist().angular().z());
   odometry_sensor_->update(odom_msg, node_->get_clock()->now());
 }
 

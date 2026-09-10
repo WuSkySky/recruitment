@@ -37,8 +37,19 @@ GimbalInterface::GimbalInterface(
   std::shared_ptr<ignition::transport::Node> gz_node,
   const std::string & gz_pitch_cmd_topic,
   const std::string & gz_yaw_cmd_topic,
-  const std::string & gz_joint_state_topic)
-: node_(std::move(node)), gz_node_(std::move(gz_node))
+  const std::string & gz_joint_state_topic,
+  double pitch_command_variance,
+  double yaw_command_variance,
+  double pitch_velocity_feedback_variance,
+  double yaw_velocity_feedback_variance,
+  double pitch_angle_feedback_variance,
+  double yaw_angle_feedback_variance)
+: node_(std::move(node)), gz_node_(std::move(gz_node)),
+  pitch_command_noise_(pitch_command_variance), yaw_command_noise_(yaw_command_variance),
+  pitch_velocity_feedback_noise_(pitch_velocity_feedback_variance),
+  yaw_velocity_feedback_noise_(yaw_velocity_feedback_variance),
+  pitch_angle_feedback_noise_(pitch_angle_feedback_variance),
+  yaw_angle_feedback_noise_(yaw_angle_feedback_variance)
 {
   gz_pitch_cmd_pub_ = std::make_unique<ignition::transport::Node::Publisher>(
     gz_node_->Advertise<ignition::msgs::Double>(gz_pitch_cmd_topic));
@@ -99,9 +110,10 @@ void GimbalInterface::enable(bool enabled)
 void GimbalInterface::publish_commands()
 {
   ignition::msgs::Double gz_msg;
-  gz_msg.set_data(yaw_velocity_command_.load());
+  const bool enabled = enabled_.load();
+  gz_msg.set_data(enabled ? yaw_command_noise_.apply(yaw_velocity_command_.load()) : 0.0);
   gz_yaw_cmd_pub_->Publish(gz_msg);
-  gz_msg.set_data(pitch_velocity_command_.load());
+  gz_msg.set_data(enabled ? pitch_command_noise_.apply(pitch_velocity_command_.load()) : 0.0);
   gz_pitch_cmd_pub_->Publish(gz_msg);
 }
 
@@ -140,13 +152,13 @@ void GimbalInterface::publish_feedback()
   }
 
   std_msgs::msg::Float64 feedback;
-  feedback.data = yaw_velocity;
+  feedback.data = yaw_velocity_feedback_noise_.apply(yaw_velocity);
   yaw_velocity_feedback_pub_->publish(feedback);
-  feedback.data = pitch_velocity;
+  feedback.data = pitch_velocity_feedback_noise_.apply(pitch_velocity);
   pitch_velocity_feedback_pub_->publish(feedback);
-  feedback.data = normalize_angle(yaw_position);
+  feedback.data = normalize_angle(yaw_angle_feedback_noise_.apply(yaw_position));
   yaw_angle_feedback_pub_->publish(feedback);
-  feedback.data = normalize_angle(pitch_position);
+  feedback.data = normalize_angle(pitch_angle_feedback_noise_.apply(pitch_position));
   pitch_angle_feedback_pub_->publish(feedback);
 }
 

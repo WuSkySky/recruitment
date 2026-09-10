@@ -15,7 +15,9 @@
 #include "recruitment_sim_robot_base/robot_base_node.hpp"
 #include "recruitment_sim_robot_base/reset_request_validation.hpp"
 
+#include <cmath>
 #include <memory>
+#include <stdexcept>
 #include <string>
 
 namespace recruitment_sim_robot_base
@@ -31,6 +33,43 @@ RobotBaseNode::RobotBaseNode(const rclcpp::NodeOptions & options)
   node_->declare_parameter("world_name", "default");
   node_->declare_parameter("robot_name", "robot");
   node_->declare_parameter("use_odometry", use_odometry);
+  const auto declare_variance = [this](const std::string & name) {
+      const double value = node_->declare_parameter<double>(name, 0.0);
+      if (!std::isfinite(value) || value < 0.0) {
+        throw std::invalid_argument("parameter '" + name + "' must be finite and non-negative");
+      }
+      return value;
+    };
+  const double chassis_x_command_variance =
+    declare_variance("actuator_noise.chassis_x_velocity_variance");
+  const double chassis_y_command_variance =
+    declare_variance("actuator_noise.chassis_y_velocity_variance");
+  const double chassis_yaw_command_variance =
+    declare_variance("actuator_noise.chassis_yaw_velocity_variance");
+  const double pitch_command_variance =
+    declare_variance("actuator_noise.gimbal_pitch_velocity_variance");
+  const double yaw_command_variance =
+    declare_variance("actuator_noise.gimbal_yaw_velocity_variance");
+  const double chassis_x_feedback_variance =
+    declare_variance("sensor_noise.chassis_x_velocity_variance");
+  const double chassis_y_feedback_variance =
+    declare_variance("sensor_noise.chassis_y_velocity_variance");
+  const double chassis_yaw_feedback_variance =
+    declare_variance("sensor_noise.chassis_yaw_velocity_variance");
+  const double chassis_x_position_increment_variance =
+    declare_variance("sensor_noise.chassis_x_position_increment_variance");
+  const double chassis_y_position_increment_variance =
+    declare_variance("sensor_noise.chassis_y_position_increment_variance");
+  const double chassis_yaw_increment_variance =
+    declare_variance("sensor_noise.chassis_yaw_increment_variance");
+  const double pitch_velocity_feedback_variance =
+    declare_variance("sensor_noise.gimbal_pitch_velocity_variance");
+  const double yaw_velocity_feedback_variance =
+    declare_variance("sensor_noise.gimbal_yaw_velocity_variance");
+  const double pitch_angle_feedback_variance =
+    declare_variance("sensor_noise.gimbal_pitch_angle_variance");
+  const double yaw_angle_feedback_variance =
+    declare_variance("sensor_noise.gimbal_yaw_angle_variance");
   node_->get_parameter("robot_name", robot_name);
   node_->get_parameter("world_name", world_name);
   node_->get_parameter("use_odometry", use_odometry);
@@ -44,7 +83,8 @@ RobotBaseNode::RobotBaseNode(const rclcpp::NodeOptions & options)
   // create hardware moudule
   // Actuator
   chassis_actuator_ = std::make_shared<recruitment_sim_robot_base::IgnChassisActuator>(
-    node_, gz_node_, gz_cmd_vel_topic);
+    node_, gz_node_, gz_cmd_vel_topic,
+    chassis_x_command_variance, chassis_y_command_variance, chassis_yaw_command_variance);
   shoot_actuator_ = std::make_shared<recruitment_sim_robot_base::IgnShootActuator>(
     gz_node_, robot_name, "small_shooter");
   gz_light_bar_cmd_ = std::make_shared<recruitment_sim_robot_base::IgnLightBarCmd>(
@@ -53,15 +93,22 @@ RobotBaseNode::RobotBaseNode(const rclcpp::NodeOptions & options)
   chassis_controller_ = std::make_shared<recruitment_sim_robot_base::ChassisController>(
     node_, chassis_actuator_);
   gimbal_interface_ = std::make_shared<recruitment_sim_robot_base::GimbalInterface>(
-    node_, gz_node_, gz_pitch_cmd_topic, gz_yaw_cmd_topic, gz_joint_state_topic);
+    node_, gz_node_, gz_pitch_cmd_topic, gz_yaw_cmd_topic, gz_joint_state_topic,
+    pitch_command_variance, yaw_command_variance,
+    pitch_velocity_feedback_variance, yaw_velocity_feedback_variance,
+    pitch_angle_feedback_variance, yaw_angle_feedback_variance);
   shooter_controller_ = std::make_shared<recruitment_sim_robot_base::ShooterController>(
     node_, shoot_actuator_);
   // odometry
   if (use_odometry) {
     gz_chassis_odometry_ = std::make_shared<recruitment_sim_robot_base::IgnOdometry>(
-      node_, gz_node_, "/" + robot_name + "/odometry");
+      node_, gz_node_, "/" + robot_name + "/odometry",
+      chassis_x_feedback_variance, chassis_y_feedback_variance, chassis_yaw_feedback_variance);
     odometry_publisher_ = std::make_shared<recruitment_sim_robot_base::OdometryPublisher>(
-      node_, gz_chassis_odometry_->get_odometry_sensor());
+      node_, gz_chassis_odometry_->get_odometry_sensor(),
+      chassis_x_position_increment_variance,
+      chassis_y_position_increment_variance,
+      chassis_yaw_increment_variance);
   }
   light_color_service_ = node_->create_service<
     recruitment_sim_interfaces::srv::SetLightColor>(
@@ -100,6 +147,28 @@ RobotBaseNode::RobotBaseNode(const rclcpp::NodeOptions & options)
       apply_enabled_state();
       res->success = true;
       res->message = "control state and light color reset";
+    });
+  initialize_odometry_service_ = node_->create_service<
+    recruitment_sim_interfaces::srv::InitializeModule>(
+    "/referee_system/" + robot_name + "/initialize_odometry",
+    [this](
+      const std::shared_ptr<recruitment_sim_interfaces::srv::InitializeModule::Request> req,
+      std::shared_ptr<recruitment_sim_interfaces::srv::InitializeModule::Response> res) {
+      if (has_odometry_initialization_round_ && req->round_id < odometry_initialization_round_id_) {
+        res->success = false;
+        res->message = "stale round";
+        return;
+      }
+      if (odometry_publisher_ && !odometry_publisher_->request_initialize(req->round_id)) {
+        res->success = false;
+        res->message = "stale round";
+        return;
+      }
+      odometry_initialization_round_id_ = req->round_id;
+      has_odometry_initialization_round_ = true;
+      res->success = true;
+      res->message = odometry_publisher_ ?
+        "odometry initialization scheduled" : "odometry disabled; no initialization needed";
     });
   // Enable actuators and sensors. Sensor reporting deliberately remains independent from
   // referee power state so a disabled robot is still observable.

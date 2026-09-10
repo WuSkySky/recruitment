@@ -6,6 +6,7 @@ robots:
   # Both robots are centered on the 1.5 m short side (x = -5.25) and
   # arranged front-to-back on the 2.0 m long side.
   - name: red_infantry_robot
+    projectile_noise: {yaw_angle_variance: 0.0, pitch_angle_variance: 0.0} # rad²
     type: pb2025_infantry_robot
     color: red
     referee:
@@ -18,6 +19,7 @@ robots:
       z: 0.1
       yaw: -1.5707963267948966
   - name: red_sentry_robot
+    projectile_noise: {yaw_angle_variance: 0.0, pitch_angle_variance: 0.0} # rad²
     type: pb2025_sentry_robot
     color: red
     referee:
@@ -32,6 +34,7 @@ robots:
 
   # Blue start zone is the point-symmetric counterpart of the red zone.
   - name: blue_infantry_robot
+    projectile_noise: {yaw_angle_variance: 0.0, pitch_angle_variance: 0.0} # rad²
     type: pb2025_infantry_robot
     color: blue
     referee:
@@ -44,6 +47,7 @@ robots:
       z: 0.1
       yaw: 1.5707963267948966
   - name: blue_sentry_robot
+    projectile_noise: {yaw_angle_variance: 0.0, pitch_angle_variance: 0.0} # rad²
     type: pb2025_sentry_robot
     color: blue
     referee:

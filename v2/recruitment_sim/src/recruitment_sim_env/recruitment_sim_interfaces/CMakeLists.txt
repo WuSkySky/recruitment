@@ -10,6 +10,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/MatchStatus.msg"
   "msg/PlayerInput.msg"
   "srv/ControlMatch.srv"
+  "srv/InitializeModule.srv"
   "srv/ResetRobot.srv"
   "srv/SetRobotEnabled.srv"
   "srv/SetLightColor.srv"

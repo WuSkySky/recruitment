@@ -21,6 +21,9 @@
 #include "rclcpp/rclcpp.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "hardware_interface.hpp"
+#include "recruitment_sim_robot_base/gaussian_noise.hpp"
+#include "recruitment_sim_robot_base/incremental_odometry.hpp"
+#include "recruitment_sim_robot_base/initialization_gate.hpp"
 
 namespace recruitment_sim_robot_base
 {
@@ -31,8 +34,12 @@ public:
   OdometryPublisher(
     rclcpp::Node::SharedPtr node,
     Sensor<nav_msgs::msg::Odometry>::SharedPtr odometry_sensor,
+    double x_position_increment_variance,
+    double y_position_increment_variance,
+    double yaw_increment_variance,
     const std::string & publisher_name = "odometry_publisher");
   ~OdometryPublisher() {}
+  bool request_initialize(uint64_t round_id);
 
 private:
   void timer_callback();
@@ -44,8 +51,18 @@ private:
   rclcpp::TimerBase::SharedPtr timer_;
   // sensor data
   std::mutex msg_mut_;
+  std::mutex state_mut_;
   Sensor<nav_msgs::msg::Odometry>::SharedPtr odometry_sensor_;
   nav_msgs::msg::Odometry sensor_msg_;
+  bool has_sensor_msg_{false};
+  uint64_t sensor_sequence_{0};
+  bool odometry_initialized_{false};
+  InitializationGate initialization_gate_;
+  PlanarPose last_ground_truth_;
+  PlanarPose last_odometry_;
+  GaussianNoise x_position_increment_noise_;
+  GaussianNoise y_position_increment_noise_;
+  GaussianNoise yaw_increment_noise_;
   std::string frame_id_{"odom"};
   std::string child_frame_id_{"base_link"};
   bool use_footprint_{false};

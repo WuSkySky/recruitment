@@ -21,6 +21,7 @@
 #include "geometry_msgs/msg/twist.hpp"
 #include "ignition/transport/Node.hh"
 #include "hardware_interface.hpp"
+#include "recruitment_sim_robot_base/gaussian_noise.hpp"
 
 namespace recruitment_sim_robot_base
 {
@@ -31,7 +32,10 @@ public:
   IgnChassisActuator(
     rclcpp::Node::SharedPtr node,
     const std::shared_ptr<ignition::transport::Node> & gz_node,
-    const std::string & gz_cmd_vel_topic);
+    const std::string & gz_cmd_vel_topic,
+    double x_velocity_command_variance,
+    double y_velocity_command_variance,
+    double yaw_velocity_command_variance);
   ~IgnChassisActuator() {}
 
   void set(const geometry_msgs::msg::Twist & data) override;
@@ -41,6 +45,9 @@ private:
   rclcpp::Node::SharedPtr node_;
   std::shared_ptr<ignition::transport::Node> gz_node_;
   std::unique_ptr<ignition::transport::Node::Publisher> gz_cmd_vel_pub_;
+  GaussianNoise x_velocity_command_noise_;
+  GaussianNoise y_velocity_command_noise_;
+  GaussianNoise yaw_velocity_command_noise_;
   bool enable_{false};
 };
 

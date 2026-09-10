@@ -23,8 +23,14 @@ namespace recruitment_sim_robot_base
 IgnChassisActuator::IgnChassisActuator(
   rclcpp::Node::SharedPtr node,
   const std::shared_ptr<ignition::transport::Node> & gz_node,
-  const std::string & gz_cmd_vel_topic)
-: node_(node), gz_node_(gz_node)
+  const std::string & gz_cmd_vel_topic,
+  double x_velocity_command_variance,
+  double y_velocity_command_variance,
+  double yaw_velocity_command_variance)
+: node_(node), gz_node_(gz_node),
+  x_velocity_command_noise_(x_velocity_command_variance),
+  y_velocity_command_noise_(y_velocity_command_variance),
+  yaw_velocity_command_noise_(yaw_velocity_command_variance)
 {
   gz_cmd_vel_pub_ = std::make_unique<ignition::transport::Node::Publisher>(
     gz_node_->Advertise<ignition::msgs::Twist>(gz_cmd_vel_topic));
@@ -36,9 +42,9 @@ void IgnChassisActuator::set(const geometry_msgs::msg::Twist & data)
     return;
   }
   ignition::msgs::Twist gz_msg;
-  gz_msg.mutable_linear()->set_x(data.linear.x);
-  gz_msg.mutable_linear()->set_y(data.linear.y);
-  gz_msg.mutable_angular()->set_z(data.angular.z);
+  gz_msg.mutable_linear()->set_x(x_velocity_command_noise_.apply(data.linear.x));
+  gz_msg.mutable_linear()->set_y(y_velocity_command_noise_.apply(data.linear.y));
+  gz_msg.mutable_angular()->set_z(yaw_velocity_command_noise_.apply(data.angular.z));
   gz_cmd_vel_pub_->Publish(gz_msg);
 }
 

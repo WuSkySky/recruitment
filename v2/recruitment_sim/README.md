@@ -114,7 +114,37 @@ ros2 launch recruitment_sim_bringup bringup.launch.py \
 - 哨兵额外提供 `/<team>/sentry/livox/lidar`。
 - 当前不发布 `/tf`、`/tf_static` 或 `joint_states`。
 
+执行器命令和反馈支持零均值正态噪声，可在
+`recruitment_sim_bringup/config/base_params.yaml` 中配置方差。`actuator_noise` 分别控制底盘速度、
+云台 pitch/yaw 速度命令实际送入 Gazebo 前的噪声；`sensor_noise` 分别控制底盘速度反馈、
+云台 pitch/yaw 速度反馈和角度反馈的噪声。底盘的 `linear.x`、`linear.y`、`angular.z` 分别由
+`chassis_x_velocity_variance`、`chassis_y_velocity_variance`、`chassis_yaw_velocity_variance`
+配置，并独立采样。方差必须是有限非负数，默认均为 `0.0`（关闭噪声）。底盘速度反馈噪声作用于
+`chassis_odometry.twist.twist`，因此仅在 `use_odometry: true` 时可见。
+底盘位姿反馈通过 `chassis_x_position_increment_variance`、
+`chassis_y_position_increment_variance` 和 `chassis_yaw_increment_variance` 配置每次发布时车体
+前向、横向和转角增量的噪声方差。带噪增量从上一反馈位姿继续积分，因此误差会持续累计，且
+yaw 漂移会改变后续位移的积分方向。
+首次启动以及比赛重置后，底盘里程计的平面 `x/y/yaw` 均从零开始。每台机器人提供内部生命周期
+服务 `/referee_system/<robot_name>/initialize_odometry`；裁判系统在 Gazebo 回位后调用该服务，
+并等待全部机器人确认后才恢复比赛。初始化完成前不会继续发布上一轮的里程计位姿。
+
+弹丸初速度方向噪声在 `recruitment_sim_bringup/config/robots.yaml` 中按机器人配置：
+
+```yaml
+projectile_noise:
+  yaw_angle_variance: 0.0
+  pitch_angle_variance: 0.0
+```
+
+两个参数单位均为 rad²，必须是有限非负数；省略或设为 `0.0` 时不产生方向误差。
+每次实际发弹时，在枪口局部坐标系独立采样零均值正态 yaw/pitch 偏角，保持初速度大小
+18 m/s 不变，之后仍由 Gazebo 处理重力和碰撞，不在飞行中继续加噪声。
+例如方差 `0.0001` 对应标准差 `0.01 rad`（约 `0.57°`）。修改配置后需重启仿真。
+这种误差不累计，比赛重置不重置或重新播种随机数生成器。
+
 ### 机器人分域与小消息网关
+
 
 每台机器人的 Gazebo→ROS 传感器桥单独指定 ROS 域：红步兵为 `20`、红哨兵为 `21`、蓝步兵为 `30`、蓝哨兵为 `31`。
 相机、camera_info、云台 IMU、哨兵点云及真值里程计 `chassis_odometry` 均随桥进入
@@ -143,7 +173,8 @@ ROS_DOMAIN_ID=31 ros2 topic list --no-daemon
 相机、IMU、点云和真值里程计仍由 Gazebo→ROS 桥直接发布到各机器人域，不经过小消息网关。
 反馈保留在内部域，并单向转发到对应机器人域。选手可在域 20/21/30/31 直接发送己方控制命令。
 
-Web 后端仍在内部域：键鼠输入通过网关进入机器人域，但其相机订阅尚未适配，Web 画面暂不可用。
+Web 主节点仍在内部域处理裁判状态、控制服务和键鼠输入；另为红、蓝选手端分别创建位于步兵
+机器人域的相机订阅节点，因此相机图像不经过 ROS→ROS 网关即可进入 WebRTC 画面。
 本方案只用于逻辑分组，不提供身份认证或访问控制；修改域编号仍可接入其他域。
 
 交互式测试工具示例：

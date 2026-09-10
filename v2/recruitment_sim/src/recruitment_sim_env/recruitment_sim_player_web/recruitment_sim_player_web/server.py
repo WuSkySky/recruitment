@@ -20,6 +20,7 @@ from ament_index_python.packages import get_package_share_directory
 from av import VideoFrame
 import numpy as np
 import rclpy
+from rclpy.context import Context
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import (
@@ -145,6 +146,33 @@ class LatestImage:
         return 0.0 if duration <= 0 else (len(samples) - 1) / duration
 
 
+class CameraDomainNode(Node):
+    def __init__(
+        self,
+        team: str,
+        robot: RobotDescriptor,
+        latest_image: LatestImage,
+        context: Context,
+    ) -> None:
+        super().__init__(
+            f"player_web_{team}_camera",
+            context=context,
+            use_global_arguments=False,
+        )
+        sensor_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE,
+        )
+        self._image_subscription = self.create_subscription(
+            Image,
+            f"{robot.namespace}/camera/image",
+            latest_image.push,
+            sensor_qos,
+        )
+
+
 class RosVideoTrack(VideoStreamTrack):
     kind = "video"
 
@@ -194,6 +222,8 @@ class CompetitionWebNode(Node):
         self.declare_parameter("robots_file", "")
         self.declare_parameter("bind_address", "0.0.0.0")
         self.declare_parameter("port", 8080)
+        self.declare_parameter("red_camera_domain_id", 20)
+        self.declare_parameter("blue_camera_domain_id", 30)
 
         robots_file = self.get_parameter("robots_file").value
         if not robots_file:
@@ -215,10 +245,10 @@ class CompetitionWebNode(Node):
                 )
             self.player_robots[team] = selected[0]
 
-        sensor_qos = QoSProfile(
+        input_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
-            depth=1,
-            reliability=ReliabilityPolicy.BEST_EFFORT,
+            depth=10,
+            reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.VOLATILE,
         )
         state_qos = QoSProfile(
@@ -229,18 +259,9 @@ class CompetitionWebNode(Node):
         )
         self.latest_images = {team: LatestImage() for team in PLAYER_ROLES}
         self._input_publishers = {}
-        self._image_subscriptions = []
         for team, robot in self.player_robots.items():
             self._input_publishers[team] = self.create_publisher(
-                PlayerInput, f"{robot.namespace}/player_input", sensor_qos
-            )
-            self._image_subscriptions.append(
-                self.create_subscription(
-                    Image,
-                    f"{robot.namespace}/camera/image",
-                    self.latest_images[team].push,
-                    sensor_qos,
-                )
+                PlayerInput, f"{robot.namespace}/player_input", input_qos
             )
 
         self._state_lock = threading.Lock()
@@ -272,6 +293,9 @@ class CompetitionWebNode(Node):
         self.get_logger().info(
             "competition web serves red player, blue player, and referee roles"
         )
+
+    def camera_domain_id(self, team: str) -> int:
+        return int(self.get_parameter(f"{team}_camera_domain_id").value)
 
     def _on_match(self, message: MatchStatus) -> None:
         with self._state_lock:
@@ -717,12 +741,44 @@ def main(args=None) -> None:
     executor = MultiThreadedExecutor(num_threads=2)
     executor.add_node(node)
     ros_thread = threading.Thread(target=executor.spin, daemon=True)
+    camera_runtimes = []
+    for team, robot in node.player_robots.items():
+        context = Context()
+        context.init(
+            args=[],
+            domain_id=node.camera_domain_id(team),
+        )
+        camera_node = CameraDomainNode(
+            team, robot, node.latest_images[team], context
+        )
+        camera_executor = MultiThreadedExecutor(
+            num_threads=1, context=context
+        )
+        camera_executor.add_node(camera_node)
+        camera_thread = threading.Thread(
+            target=camera_executor.spin, daemon=True
+        )
+        camera_runtimes.append(
+            (context, camera_node, camera_executor, camera_thread)
+        )
+        camera_thread.start()
+        node.get_logger().info(
+            f"{team} camera subscription uses ROS domain "
+            f"{node.camera_domain_id(team)}"
+        )
     ros_thread.start()
     try:
         asyncio.run(run_server(node))
     except KeyboardInterrupt:
         pass
     finally:
+        for _, _, camera_executor, _ in camera_runtimes:
+            camera_executor.shutdown()
+        for context, camera_node, _, camera_thread in camera_runtimes:
+            camera_node.destroy_node()
+            if context.ok():
+                context.shutdown()
+            camera_thread.join(timeout=2.0)
         executor.shutdown()
         node.destroy_node()
         if rclpy.ok():

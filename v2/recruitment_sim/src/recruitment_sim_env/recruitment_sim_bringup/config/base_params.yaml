@@ -2,3 +2,20 @@
   ros__parameters:
     world_name: default
     use_odometry: false
+    actuator_noise:
+      chassis_x_velocity_variance: 0.0
+      chassis_y_velocity_variance: 0.0
+      chassis_yaw_velocity_variance: 0.0
+      gimbal_pitch_velocity_variance: 0.0
+      gimbal_yaw_velocity_variance: 0.0
+    sensor_noise:
+      chassis_x_velocity_variance: 0.0
+      chassis_y_velocity_variance: 0.0
+      chassis_yaw_velocity_variance: 0.0
+      chassis_x_position_increment_variance: 0.0
+      chassis_y_position_increment_variance: 0.0
+      chassis_yaw_increment_variance: 0.0
+      gimbal_pitch_velocity_variance: 0.0
+      gimbal_yaw_velocity_variance: 0.0
+      gimbal_pitch_angle_variance: 0.0
+      gimbal_yaw_angle_variance: 0.0

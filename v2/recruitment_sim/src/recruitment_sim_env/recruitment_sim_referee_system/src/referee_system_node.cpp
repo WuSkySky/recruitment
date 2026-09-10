@@ -17,11 +17,13 @@
 #include "recruitment_sim_interfaces/srv/set_robot_enabled.hpp"
 #include "recruitment_sim_interfaces/srv/reset_robot.hpp"
 #include "recruitment_sim_interfaces/srv/control_match.hpp"
+#include "recruitment_sim_interfaces/srv/initialize_module.hpp"
 
 namespace recruitment_sim_referee_system
 {
 using Enable = recruitment_sim_interfaces::srv::SetRobotEnabled;
 using Reset = recruitment_sim_interfaces::srv::ResetRobot;
+using Initialize = recruitment_sim_interfaces::srv::InitializeModule;
 using Control = recruitment_sim_interfaces::srv::ControlMatch;
 using Status = recruitment_sim_interfaces::msg::MatchStatus;
 using RobotStatus = recruitment_sim_interfaces::msg::RobotStatus;
@@ -62,6 +64,8 @@ public:
       publishers_[names[i]] = create_publisher<RobotStatus>("/referee_system/" + names[i] + "/status", qos);
       enables_[names[i]] = create_client<Enable>("/referee_system/" + names[i] + "/set_enabled");
       resets_[names[i]] = create_client<Reset>("/referee_system/" + names[i] + "/reset");
+      odometry_initializers_[names[i]] = create_client<Initialize>(
+        "/referee_system/" + names[i] + "/initialize_odometry");
     }
     match_ = std::make_unique<MatchEngine>(configs, ZoneConfig{zone, bounds[0], bounds[1], bounds[2], bounds[3]});
     publisher_ = create_publisher<Status>("/referee_system/match/status", qos);
@@ -100,7 +104,10 @@ public:
     RCLCPP_INFO(get_logger(), "referee training mode, %zu robots; RESUME resets and START begins judging", names.size());
   }
 private:
-  enum class Stage {CONFIG, IDLE, START_STOP, START_PAUSE, RESET, ENABLE, RESUME, END_STOP, END_PAUSE};
+  enum class Stage {
+    CONFIG, IDLE, START_STOP, START_PAUSE, RESET, INITIALIZE, ENABLE, RESUME,
+    END_STOP, END_PAUSE
+  };
   struct Frame {
     MatchFrame game;
     bool paused{true}, ready{false};
@@ -108,7 +115,7 @@ private:
     std::string phase, error;
   };
   struct Pending {
-    bool acknowledged{false}, in_flight{false};
+    bool acknowledged{false}, in_flight{false}, failed{false};
     int64_t sent{0}, id{0};
   };
   struct Desired : Pending {bool value{false};};
@@ -154,14 +161,25 @@ private:
   {
     control_epoch_ = ++serial_;
     for (auto & p : pending_) {if (p.second.in_flight) {resets_.at(p.first)->remove_pending_request(p.second.id);}}
+    for (auto & p : initialize_pending_) {if (p.second.in_flight) {
+        odometry_initializers_.at(p.first)->remove_pending_request(p.second.id);
+      }}
     for (auto & p : desired_) {if (p.second.in_flight) {enables_.at(p.first.first)->remove_pending_request(p.second.id);}}
-    pending_.clear(); desired_.clear();
+    pending_.clear(); initialize_pending_.clear(); desired_.clear();
     match_->referee().take_control_commands();
   }
   void begin_base(bool enabled, Stage stage)
   {
-    stage_ = stage; base_value_ = enabled; stage_since_ = steady(); pending_.clear();
+    stage_ = stage; base_value_ = enabled; stage_since_ = steady();
+    pending_.clear(); initialize_pending_.clear();
     for (const auto & client : resets_) {pending_[client.first] = Pending{};}
+  }
+  void begin_initialize()
+  {
+    stage_ = Stage::INITIALIZE; stage_since_ = steady(); initialize_pending_.clear();
+    for (const auto & client : odometry_initializers_) {
+      initialize_pending_[client.first] = Pending{};
+    }
   }
   void simulation(const std::string & verb, Stage stage, const std::string & extra = "")
   {
@@ -207,7 +225,7 @@ private:
         }
         else if (stage_ == Stage::START_PAUSE && frame.paused) {simulation("RESET", Stage::RESET);}
         else if (stage_ == Stage::RESET && frame.ready && frame.phase == "READY" &&
-          frame.game.round == match_->round()) {begin_base(true, Stage::ENABLE);}
+          frame.game.round == match_->round()) {begin_initialize();}
         else if (stage_ == Stage::RESUME && !frame.paused && frame.ready) {
           match_->reset_complete();
           if (match_->state() != MatchEngine::READY) {fail("match left RESETTING while resuming"); return;}
@@ -227,7 +245,18 @@ private:
     }
     if (match_->state() == MatchEngine::RUNNING && last_frame_wall_ &&
       steady() - last_frame_wall_ > 10000000000LL) {fail("simulation heartbeat lost"); return;}
-    if (stage_ == Stage::START_STOP || stage_ == Stage::ENABLE || stage_ == Stage::END_STOP) {
+    if (stage_ == Stage::INITIALIZE) {
+      dispatch_initialize();
+      for (const auto & p : initialize_pending_) {
+        if (p.second.failed) {
+          fail("odometry initialization failed for " + p.first);
+          return;
+        }
+      }
+      bool done = true;
+      for (const auto & p : initialize_pending_) {done = done && p.second.acknowledged;}
+      if (done) {begin_base(true, Stage::ENABLE);}
+    } else if (stage_ == Stage::START_STOP || stage_ == Stage::ENABLE || stage_ == Stage::END_STOP) {
       dispatch_reset();
       bool done = true;
       for (const auto & p : pending_) {done = done && p.second.acknowledged;}
@@ -271,6 +300,37 @@ private:
           if (epoch != control_epoch_ || stage != stage_) {return;}
           auto & p = pending_.at(name); p.in_flight = false;
           try {p.acknowledged = future.get()->success;} catch (const std::exception &) {}
+        }).request_id;
+    }
+  }
+  void dispatch_initialize()
+  {
+    for (auto & p : initialize_pending_) {
+      auto client = odometry_initializers_.at(p.first); auto & pending = p.second;
+      if (pending.acknowledged || pending.failed || steady() - pending.sent < 1000000000LL) {
+        continue;
+      }
+      if (pending.in_flight) {
+        client->remove_pending_request(pending.id);
+        pending.in_flight = false;
+      }
+      if (!client->service_is_ready()) {continue;}
+      auto req = std::make_shared<Initialize::Request>();
+      req->round_id = control_epoch_;
+      const auto epoch = control_epoch_; const auto name = p.first;
+      pending.sent = steady(); pending.in_flight = true;
+      pending.id = client->async_send_request(req,
+        [this, epoch, name](rclcpp::Client<Initialize>::SharedFuture future) {
+          if (epoch != control_epoch_ || stage_ != Stage::INITIALIZE ||
+            !initialize_pending_.count(name)) {return;}
+          auto & p = initialize_pending_.at(name); p.in_flight = false;
+          try {
+            const auto response = future.get();
+            p.acknowledged = response->success;
+            p.failed = !response->success;
+          } catch (const std::exception &) {
+            p.failed = true;
+          }
         }).request_id;
     }
   }
@@ -332,8 +392,10 @@ private:
   rclcpp::Service<Control>::SharedPtr service_;
   std::map<std::string, rclcpp::Client<Enable>::SharedPtr> enables_;
   std::map<std::string, rclcpp::Client<Reset>::SharedPtr> resets_;
+  std::map<std::string, rclcpp::Client<Initialize>::SharedPtr> odometry_initializers_;
   std::map<std::string, uint8_t> colors_;
   std::map<std::string, Pending> pending_;
+  std::map<std::string, Pending> initialize_pending_;
   std::map<std::pair<std::string, uint8_t>, Desired> desired_;
   rclcpp::TimerBase::SharedPtr timer_, status_timer_;
 };
