@@ -1,5 +1,5 @@
 # mecanum plugin odometry
-- ros_topic_name: "/<robot_name>/chassis_odometry_gt"
+- ros_topic_name: "/<robot_name>/chassis_odometry"
   gz_topic_name: "/<robot_name>/odometry"
   ros_type_name: "nav_msgs/msg/Odometry"
   gz_type_name: "ignition.msgs.Odometry"
@@ -12,7 +12,7 @@
   gz_type_name: "ignition.msgs.Model"
   direction: "GZ_TO_ROS"
 
-- ros_topic_name: "/<robot_name>/front_industrial_camera/image"
+- ros_topic_name: "/<robot_name>/camera/image"
   gz_topic_name: "/world/default/model/<robot_name>/link/front_industrial_camera/sensor/front_industrial_camera/image"
   ros_type_name: "sensor_msgs/msg/Image"
   gz_type_name: "ignition.msgs.Image"
@@ -36,7 +36,7 @@
   gz_type_name: "ignition.msgs.IMU"
   direction: "GZ_TO_ROS"
 
-- ros_topic_name: "/<robot_name>/front_industrial_camera/camera_info"
+- ros_topic_name: "/<robot_name>/camera/camera_info"
   gz_topic_name: "/world/default/model/<robot_name>/link/front_industrial_camera/sensor/front_industrial_camera/camera_info"
   ros_type_name: "sensor_msgs/msg/CameraInfo"
   gz_type_name: "ignition.msgs.CameraInfo"

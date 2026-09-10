@@ -36,10 +36,10 @@ def _bridge_mapping(robot_name, robot_namespace, robot_type, world_name):
     model_prefix = f"/world/{world_name}/model/{robot_name}"
     ros_prefix = f"/{robot_namespace}"
     mappings = [
-        (f"/{robot_name}/odometry", f"{ros_prefix}/chassis_odometry_gt", "nav_msgs/msg/Odometry", "ignition.msgs.Odometry"),
+        (f"/{robot_name}/odometry", f"{ros_prefix}/chassis_odometry", "nav_msgs/msg/Odometry", "ignition.msgs.Odometry"),
         (f"{model_prefix}/link/gimbal_pitch/sensor/gimbal_imu/imu", f"{ros_prefix}/gimbal_imu", "sensor_msgs/msg/Imu", "ignition.msgs.IMU"),
-        (f"{model_prefix}/link/front_industrial_camera/sensor/front_industrial_camera/image", f"{ros_prefix}/front_industrial_camera/image", "sensor_msgs/msg/Image", "ignition.msgs.Image"),
-        (f"{model_prefix}/link/front_industrial_camera/sensor/front_industrial_camera/camera_info", f"{ros_prefix}/front_industrial_camera/camera_info", "sensor_msgs/msg/CameraInfo", "ignition.msgs.CameraInfo"),
+        (f"{model_prefix}/link/front_industrial_camera/sensor/front_industrial_camera/image", f"{ros_prefix}/camera/image", "sensor_msgs/msg/Image", "ignition.msgs.Image"),
+        (f"{model_prefix}/link/front_industrial_camera/sensor/front_industrial_camera/camera_info", f"{ros_prefix}/camera/camera_info", "sensor_msgs/msg/CameraInfo", "ignition.msgs.CameraInfo"),
     ]
     if robot_type == "pb2025_sentry_robot":
         mappings.extend(

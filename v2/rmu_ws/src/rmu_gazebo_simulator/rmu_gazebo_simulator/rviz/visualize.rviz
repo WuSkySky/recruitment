@@ -147,7 +147,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /red_standard_robot1/front_industrial_camera/image
+        Value: /red_standard_robot1/camera/image
       Value: true
       Visibility:
         TF: false

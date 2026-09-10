@@ -353,7 +353,7 @@ def ros_info_thread(node, robot_name):
     for robot_name in robot_names:
         node.create_subscription(
             Image,
-            "/%s/front_industrial_camera/image" % (robot_name),
+            "/%s/camera/image" % (robot_name),
             send_img_callback(robot_name),
             45,
         )

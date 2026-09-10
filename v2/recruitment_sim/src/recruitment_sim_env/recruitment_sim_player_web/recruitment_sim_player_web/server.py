@@ -237,7 +237,7 @@ class CompetitionWebNode(Node):
             self._image_subscriptions.append(
                 self.create_subscription(
                     Image,
-                    f"{robot.namespace}/front_industrial_camera/image",
+                    f"{robot.namespace}/camera/image",
                     self.latest_images[team].push,
                     sensor_qos,
                 )

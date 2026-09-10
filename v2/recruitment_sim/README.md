@@ -97,8 +97,8 @@ ros2 launch recruitment_sim_bringup bringup.launch.py \
   修改插件并重新构建后需要重启 Gazebo 才会加载新的动态库；仅重新调用服务不会更新已加载的插件。
 - `/referee_system/<robot_name>/set_enabled`：裁判控制服务；目标 0–3 分别为整机、底盘、云台、
   发射机构。失能会立即停止对应执行器，传感器和反馈继续运行。
-- `/<team>/<type>/chassis_odometry_gt`、`gimbal_imu`：状态反馈。
-- `/<team>/<type>/front_industrial_camera/image`、`camera_info`：工业相机。
+- `/<team>/<type>/chassis_odometry`、`gimbal_imu`：状态反馈。
+- `/<team>/<type>/camera/image`、`camera_info`：工业相机。
 - `/<team>/infantry/player_input`：浏览器以 60 Hz 发布的 `PlayerInput` 原始键鼠状态；
   `mouse_dx/mouse_dy` 是当前周期内浏览器 `movementX/movementY` 的总和，正方向分别为右和下。
   `active=false` 表示页面未锁定鼠标或控制会话已经断开，选手控制节点应立即输出安全的零命令。
@@ -117,7 +117,7 @@ ros2 launch recruitment_sim_bringup bringup.launch.py \
 ### 机器人分域与小消息网关
 
 每台机器人的 Gazebo→ROS 传感器桥单独指定 ROS 域：红步兵为 `20`、红哨兵为 `21`、蓝步兵为 `30`、蓝哨兵为 `31`。
-相机、camera_info、云台 IMU、哨兵点云及真值里程计 `chassis_odometry_gt` 均随桥进入
+相机、camera_info、云台 IMU、哨兵点云及真值里程计 `chassis_odometry` 均随桥进入
 对应机器人域；其他颜色沿用启动环境中的域。话题名称保持不变，不增加 ROS→ROS 转发。
 
 在选手电脑或主机上，可分别查看四个域（`--no-daemon` 避免复用其他域的 CLI daemon）：
