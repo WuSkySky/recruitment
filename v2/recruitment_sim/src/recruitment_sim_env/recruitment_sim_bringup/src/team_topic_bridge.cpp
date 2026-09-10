@@ -48,6 +48,7 @@ int main(int argc, char ** argv)
     }
     rclcpp::InitOptions init_options;
     init_options.set_domain_id(domain);
+    init_options.auto_initialize_logging(false);
     team_context->init(0, nullptr, init_options);
     rclcpp::NodeOptions node_options;
     node_options.context(team_context).use_global_arguments(false);
@@ -89,8 +90,6 @@ int main(int argc, char ** argv)
     // A single executor services both domains, avoiding extra worker threads.
     // Callback groups retain the context of their owning nodes.
     team_executor.add_node(internal);
-    RCLCPP_INFO(internal->get_logger(), "Small-topic gateway: internal %zu <-> %s %ld",
-      internal_domain, team.c_str(), static_cast<long>(domain));
     // SIGINT shuts down the default context; poll it while servicing both nodes.
     while (rclcpp::ok() && team_context->is_valid()) {
       team_executor.spin_once(std::chrono::milliseconds(20));

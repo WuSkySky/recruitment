@@ -129,6 +129,7 @@ def _spawn_robots(context: LaunchContext):
     description_share = get_package_share_directory("recruitment_sim_description")
     robots_file = LaunchConfiguration("robots_file").perform(context)
     log_level = LaunchConfiguration("log_level")
+    infrastructure_log_level = LaunchConfiguration("infrastructure_log_level")
 
     with open(robots_file, encoding="utf-8") as stream:
         config = yaml.safe_load(stream)
@@ -179,6 +180,7 @@ def _spawn_robots(context: LaunchContext):
                     "-y", str(pose["y"]),
                     "-z", str(pose["z"]),
                     "-Y", str(pose["yaw"]),
+                    "--ros-args", "--log-level", infrastructure_log_level,
                 ],
             )
         )
@@ -209,6 +211,8 @@ def _spawn_robots(context: LaunchContext):
                 arguments=[
                     f"{gz_topic}@{ros_type}[{gz_type}"
                     for gz_topic, _, ros_type, gz_type in mappings
+                ] + [
+                    "--ros-args", "--log-level", infrastructure_log_level,
                 ],
                 remappings=[
                     (gz_topic, ros_topic)
@@ -260,6 +264,9 @@ def _spawn_robots(context: LaunchContext):
                     "robot_namespaces": [_robot_namespace(robot) for robot in robots],
                     "robot_names": [robot["name"] for robot in robots],
                 }],
+                arguments=[
+                    "--ros-args", "--log-level", infrastructure_log_level,
+                ],
             ))
 
     return actions
@@ -304,13 +311,20 @@ def generate_launch_description():
             DeclareLaunchArgument("player_web", default_value="true"),
             DeclareLaunchArgument("player_web_port", default_value="8080"),
             DeclareLaunchArgument("log_level", default_value="info"),
+            DeclareLaunchArgument(
+                "infrastructure_log_level", default_value="warn"
+            ),
             gazebo_gui,
             gazebo_headless,
             Node(
                 package="ros_gz_bridge",
                 executable="parameter_bridge",
                 name="clock_bridge",
-                arguments=["/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock"],
+                arguments=[
+                    "/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock",
+                    "--ros-args", "--log-level",
+                    LaunchConfiguration("infrastructure_log_level"),
+                ],
             ),
             OpaqueFunction(function=_spawn_robots),
             Node(

@@ -50,6 +50,15 @@ from .protocol import (
 )
 
 
+def web_access_urls(host: str, port: int) -> List[str]:
+    if host in {"0.0.0.0", "::"}:
+        return [
+            f"http://localhost:{port}",
+            f"http://<host-ip>:{port}",
+        ]
+    return [f"http://{host}:{port}"]
+
+
 ROBOT_TYPES = {
     "pb2025_infantry_robot": "infantry",
     "pb2025_sentry_robot": "sentry",
@@ -289,9 +298,6 @@ class CompetitionWebNode(Node):
             )
         self._control_client = self.create_client(
             ControlMatch, "/referee_system/match/control"
-        )
-        self.get_logger().info(
-            "competition web serves red player, blue player, and referee roles"
         )
 
     def camera_domain_id(self, team: str) -> int:
@@ -741,7 +747,7 @@ async def run_server(node: CompetitionWebNode) -> None:
     site = web.TCPSite(runner, host=host, port=port)
     await site.start()
     node.get_logger().info(
-        f"competition web server listening on http://{host}:{port}"
+        "Web terminal ready: " + " | ".join(web_access_urls(host, port))
     )
     try:
         await asyncio.Event().wait()
@@ -776,10 +782,6 @@ def main(args=None) -> None:
             (context, camera_node, camera_executor, camera_thread)
         )
         camera_thread.start()
-        node.get_logger().info(
-            f"{team} camera subscription uses ROS domain "
-            f"{node.camera_domain_id(team)}"
-        )
     ros_thread.start()
     try:
         asyncio.run(run_server(node))
