@@ -301,7 +301,7 @@ def generate_launch_description():
             DeclareLaunchArgument("gui", default_value="true"),
             DeclareLaunchArgument("rviz", default_value="false"),
             DeclareLaunchArgument("rviz_config", default_value=default_rviz),
-            DeclareLaunchArgument("player_web", default_value="false"),
+            DeclareLaunchArgument("player_web", default_value="true"),
             DeclareLaunchArgument("player_web_port", default_value="8080"),
             DeclareLaunchArgument("log_level", default_value="info"),
             gazebo_gui,

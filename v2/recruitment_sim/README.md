@@ -50,16 +50,22 @@ ros2 launch recruitment_sim_bringup bringup.launch.py gui:=false
 ros2 launch recruitment_sim_bringup bringup.launch.py rviz:=true
 ```
 
-启动统一浏览器比赛终端：
+默认同时启动统一浏览器比赛终端，端口为 `8080`。如需指定其他端口：
 
 ```bash
 ros2 launch recruitment_sim_bringup bringup.launch.py \
-  player_web:=true player_web_port:=8080
+  player_web_port:=8081
 ```
 
 浏览器访问 `http://<仿真主机局域网地址>:8080`，在选择页分别打开红方选手端、蓝方选手端
 和裁判端。三个角色可同时连接；同一角色只允许一个标签页占用。选手点击进入比赛后页面进入
 全屏并锁定鼠标，标签页失焦、退出鼠标锁定或断线时只释放对应阵营的输入。
+
+如不需要 Web 端，可显式关闭：
+
+```bash
+ros2 launch recruitment_sim_bringup bringup.launch.py player_web:=false
+```
 
 如需切换回空场，可显式指定：
 
