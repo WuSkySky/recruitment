@@ -9,8 +9,6 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 find_package(ament_cmake REQUIRED)
-find_package(ignition-msgs8 REQUIRED)
-find_package(ignition-transport11 REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(recruitment_sim_interfaces REQUIRED)
 find_package(std_msgs REQUIRED)
@@ -25,8 +23,6 @@ add_executable(referee_system src/referee_system_node.cpp)
 target_include_directories(referee_system PRIVATE include)
 target_link_libraries(referee_system
   ${PROJECT_NAME}_engine
-  ignition-msgs8::core
-  ignition-transport11::core
 )
 ament_target_dependencies(referee_system
   rclcpp

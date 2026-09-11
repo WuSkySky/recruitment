@@ -1,0 +1,11 @@
+uint8 CONFIG=0
+uint8 PAUSE=1
+uint8 RESET=2
+uint8 RESUME=3
+uint8 operation
+uint64 token
+uint64 round_id
+string[] robot_names
+---
+bool success
+string message

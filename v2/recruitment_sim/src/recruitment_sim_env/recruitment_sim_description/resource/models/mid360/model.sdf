@@ -63,11 +63,10 @@
 					</mesh>
 				</geometry>
 			</visual>
-			<sensor name="simple_mid360_lidar" type="gpu_lidar">
-				<ignition_frame_id>simple_mid360</ignition_frame_id>
+			<sensor name="simple_mid360_lidar" type="gpu_ray">
 				<pose>0 0 0.03 0 0 0</pose>
 				<always_on>true</always_on>
-				<visualize>true</visualize>
+				<visualize>false</visualize>
 				<update_rate>10.0</update_rate>
 				<ray>
 					<scan>
@@ -87,12 +86,12 @@
 						<min>0.15</min>
 						<max>15.0</max>
 					</range>
-				</ray>
 				<noise>
 					<type>gaussian</type>
 					<mean>0.0</mean>
 					<stddev>0.01</stddev>
 				</noise>
+        </ray>
 			</sensor>
 		</link>
 	</model>

@@ -6,6 +6,10 @@ find_package(rosidl_default_generators REQUIRED)
 find_package(std_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/SimulationEvent.msg"
+  "msg/SimulationPosition.msg"
+  "msg/SimulationFrame.msg"
+  "srv/ControlSimulation.srv"
   "msg/RobotStatus.msg"
   "msg/MatchInfo.msg"
   "msg/MatchStatus.msg"

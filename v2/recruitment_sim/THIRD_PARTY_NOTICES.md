@@ -18,3 +18,10 @@
 `LICENSES/MIT.txt`；场地上游的原始 MIT 声明另存为 `LICENSES/MY_nav-MIT.txt`。
 RMOSS 参考源码位于相邻的 `v2/rmu_ws`；场地来源为
 [`ROS2_RM_Navigation`](https://github.com/laohao78/ROS2_RM_Navigation/tree/master/src/gazebo/pb_rm_simulation/world/RMUL2026H_world)。
+
+## Gazebo Classic 迁移
+
+Classic 控制插件继续基于上文列出的 RoboMaster-OSS 底盘、云台、射击和灯条行为，
+保留 Apache-2.0 来源及版权；原 Ignition 转接文件已移除，改写实现位于
+`recruitment_sim_description/plugins/classic/Robot.cc`。模型原有来源与许可证不变。
+Gazebo Classic 11 和 gazebo_ros_pkgs 为系统依赖，没有将其源码复制进项目。

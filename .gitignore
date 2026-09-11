@@ -51,6 +51,9 @@ venv/
 *.swo
 *~
 
+# Local agent/verification scratch space
+.scratch/
+
 # IDEs
 .vscode/
 .idea/

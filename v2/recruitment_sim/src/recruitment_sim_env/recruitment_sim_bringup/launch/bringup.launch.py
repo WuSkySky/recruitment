@@ -1,20 +1,71 @@
 #!/usr/bin/env python3
 
 import os
+import glob
+import tempfile
+import shutil
 import math
 import xml.etree.ElementTree as ET
-from typing import List
 
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchContext, LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
-from launch.conditions import IfCondition, UnlessCondition
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, LogInfo, OpaqueFunction, RegisterEventHandler
+from launch.event_handlers import OnShutdown
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
-from xmacro.xmacro4sdf import XMLMacro4sdf
+
+
+def _prepend_path(name, entry):
+    entries = [item for item in os.environ.get(name, "").split(os.pathsep) if item]
+    if entry not in entries:
+        entries.insert(0, entry)
+    return os.pathsep.join(entries)
+
+
+def _configure_gazebo_environment():
+    """Make Gazebo Classic resolve this project's resources from any shell.
+
+    Classic finds ``model://`` assets through the environment. A stale env hook
+    (for example a build tree left over from the Fortress backend) leaves these
+    variables unset, so Classic falls back to the online model database and
+    startup stalls on models.gazebosim.org. ``xmacro4sdf`` also reads
+    ``GAZEBO_MODEL_PATH`` while it is being imported, so the variables must be
+    in place before the import below runs.
+
+    The system Gazebo media path is added as well; without it Classic cannot
+    find ``media/rtshaderlib`` and renders with shader generation disabled.
+    """
+    description_share = get_package_share_directory("recruitment_sim_description")
+    models = os.path.join(description_share, "resource", "models")
+    prefix = os.path.dirname(os.path.dirname(description_share))
+    entries = {
+        "GAZEBO_MODEL_PATH": [models],
+        "SDF_PATH": [models],
+        "GAZEBO_RESOURCE_PATH": [description_share],
+        "GAZEBO_PLUGIN_PATH": [os.path.join(prefix, "plugins")],
+    }
+    for media in sorted(glob.glob("/usr/share/gazebo-[0-9]*")):
+        entries["GAZEBO_RESOURCE_PATH"].append(media)
+        system_models = os.path.join(media, "models")
+        if os.path.isdir(system_models):
+            entries["GAZEBO_MODEL_PATH"].append(system_models)
+    entries["GAZEBO_PLUGIN_PATH"].extend(
+        sorted(glob.glob("/usr/lib/*/gazebo-[0-9]*/plugins")))
+    for name, paths in entries.items():
+        for path in reversed(paths):
+            os.environ[name] = _prepend_path(name, path)
+    # The project ships every model it needs, so never contact the online model
+    # database: a network stall there is indistinguishable from a hang.
+    os.environ["GAZEBO_MODEL_DATABASE_URI"] = ""
+
+
+_configure_gazebo_environment()
+
+from xmacro.xmacro4sdf import XMLMacro4sdf  # noqa: E402 - must follow the env setup
 
 
 ROBOT_TOPIC_TYPES = {
@@ -23,6 +74,13 @@ ROBOT_TOPIC_TYPES = {
 }
 SUPPORTED_ROBOTS = set(ROBOT_TOPIC_TYPES)
 SUPPORTED_COLORS = {"none", "red", "blue", "yellow", "white"}
+LIGHT_BAR_RGBA = {
+    "none": "0 0 0 1",
+    "red": "1 0 0 1",
+    "blue": "0 0 1 1",
+    "yellow": "1 1 0 1",
+    "white": "1 1 1 1",
+}
 ROBOT_DOMAIN_IDS = {
     "red/infantry": "20", "red/sentry": "21",
     "blue/infantry": "30", "blue/sentry": "31",
@@ -33,22 +91,26 @@ def _robot_namespace(robot):
     return f"{robot['color']}/{ROBOT_TOPIC_TYPES[robot['type']]}"
 
 
-def _bridge_mapping(robot_name, robot_namespace, robot_type, world_name):
-    model_prefix = f"/world/{world_name}/model/{robot_name}"
-    ros_prefix = f"/{robot_namespace}"
-    mappings = [
-        (f"/{robot_name}/odometry", f"{ros_prefix}/chassis_odometry", "nav_msgs/msg/Odometry", "ignition.msgs.Odometry"),
-        (f"{model_prefix}/link/gimbal_pitch/sensor/gimbal_imu/imu", f"{ros_prefix}/gimbal_imu", "sensor_msgs/msg/Imu", "ignition.msgs.IMU"),
-        (f"{model_prefix}/link/front_industrial_camera/sensor/front_industrial_camera/image", f"{ros_prefix}/camera/image", "sensor_msgs/msg/Image", "ignition.msgs.Image"),
-        (f"{model_prefix}/link/front_industrial_camera/sensor/front_industrial_camera/camera_info", f"{ros_prefix}/camera/camera_info", "sensor_msgs/msg/CameraInfo", "ignition.msgs.CameraInfo"),
-    ]
-    if robot_type == "pb2025_sentry_robot":
-        mappings.extend(
-            [
-                (f"{model_prefix}/link/front_mid360/sensor/front_mid360_lidar/scan/points", f"{ros_prefix}/livox/lidar", "sensor_msgs/msg/PointCloud2", "ignition.msgs.PointCloudPacked"),
-            ]
-        )
-    return mappings
+def apply_light_bar_color(root, color):
+    """Seed the configured light-bar colour into the spawned model SDF.
+
+    The module definitions ship their light bars as plain white; the plugin
+    recolours them at runtime, but Gazebo Classic rebuilds GUI visuals from the
+    model SDF (for example after a reset), which would drop back to white. Baking
+    the colour into the SDF keeps the bars correct from the first frame.
+    """
+    rgba = LIGHT_BAR_RGBA[color]
+    for visual in root.iter("visual"):
+        if visual.get("name") != "light_bar_visual":
+            continue
+        material = visual.find("material")
+        if material is None:
+            material = ET.SubElement(visual, "material")
+        for tag in ("ambient", "diffuse", "emissive"):
+            element = material.find(tag)
+            if element is None:
+                element = ET.SubElement(material, tag)
+            element.text = rgba
 
 
 def _validate_config(config):
@@ -138,7 +200,13 @@ def _spawn_robots(context: LaunchContext):
     base_params = os.path.join(bringup_share, "config", "base_params.yaml")
 
     actions = []
-    model_sdfs = []
+    temp_dir = tempfile.mkdtemp(prefix="recruitment_classic_")
+    def cleanup(context, *args, **kwargs):
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return []
+    actions.append(RegisterEventHandler(OnShutdown(on_shutdown=[OpaqueFunction(function=cleanup)])))
+    with open(base_params, encoding="utf-8") as stream:
+        params = yaml.safe_load(stream)["/**"]["ros__parameters"]
     for robot in config["robots"]:
         robot_name = robot["name"]
         robot_type = robot["type"]
@@ -158,68 +226,57 @@ def _spawn_robots(context: LaunchContext):
         })
         robot_sdf = xmacro.to_string()
         root = ET.fromstring(robot_sdf)
+        apply_light_bar_color(root, robot["color"])
         model = root.find("model")
         model.set("name", robot_name)
         model_pose = model.find("pose")
         if model_pose is None:
             model_pose = ET.SubElement(model, "pose")
-        model_pose.text = f"{pose['x']} {pose['y']} {pose['z']} 0 0 {pose['yaw']}"
-        model_sdfs.append(ET.tostring(root, encoding="unicode"))
-
-        actions.append(
-            Node(
-                package="ros_gz_sim",
-                executable="create",
-                name=f"spawn_{robot_name}",
-                output="screen",
-                arguments=[
-                    "-string", robot_sdf,
-                    "-name", robot_name,
-                    "-allow_renaming", "false",
-                    "-x", str(pose["x"]),
-                    "-y", str(pose["y"]),
-                    "-z", str(pose["z"]),
-                    "-Y", str(pose["yaw"]),
-                    "--ros-args", "--log-level", infrastructure_log_level,
-                ],
-            )
-        )
-        actions.append(
-            Node(
-                package="recruitment_sim_robot_base",
-                executable="robot_base",
-                namespace=robot_namespace,
-                output="screen",
-                parameters=[
-                    base_params,
-                    {"robot_name": robot_name, "world_name": world_name},
-                ],
-                arguments=["--ros-args", "--log-level", log_level],
-            )
-        )
-        mappings = _bridge_mapping(robot_name, robot_namespace, robot_type, world_name)
-        actions.append(
-            Node(
-                package="ros_gz_bridge",
-                executable="parameter_bridge",
-                name=f"{robot_name}_bridge",
-                additional_env=(
-                    {"ROS_DOMAIN_ID": ROBOT_DOMAIN_IDS[robot_namespace]}
-                    if robot_namespace in ROBOT_DOMAIN_IDS else {}
-                ),
-                output="screen",
-                arguments=[
-                    f"{gz_topic}@{ros_type}[{gz_type}"
-                    for gz_topic, _, ros_type, gz_type in mappings
-                ] + [
-                    "--ros-args", "--log-level", infrastructure_log_level,
-                ],
-                remappings=[
-                    (gz_topic, ros_topic)
-                    for gz_topic, ros_topic, _, _ in mappings
-                ],
-            )
-        )
+        model_pose.text = "0 0 0 0 0 0"
+        plugin = model.find("plugin")
+        def add(parent, name, value):
+            ET.SubElement(parent, name).text = str(value).lower() if isinstance(value, bool) else str(value)
+        add(plugin, "namespace", "/" + robot_namespace)
+        domain = int(ROBOT_DOMAIN_IDS.get(robot_namespace, os.environ.get("ROS_DOMAIN_ID", "0")))
+        add(plugin, "sensor_domain", domain)
+        add(plugin, "use_odometry", params.get("use_odometry", False))
+        add(plugin, "initial_color", ["none", "red", "blue", "yellow", "white"].index(robot["color"]))
+        noise_element = ET.SubElement(plugin, "noise")
+        for group in ("actuator_noise", "sensor_noise"):
+            for key, value in params[group].items():
+                if not math.isfinite(value) or value < 0:
+                    raise RuntimeError(f"{group}.{key} must be finite and nonnegative")
+                add(noise_element, group.removesuffix("_noise") + "_" + key, value)
+        for link in model.findall("link"):
+            for sensor in link.findall("sensor"):
+                sensor_type = sensor.get("type")
+                if sensor_type not in {"camera", "imu", "gpu_ray"}:
+                    continue
+                sensor_plugin = ET.SubElement(sensor, "plugin", {
+                    "name": "recruitment_sensor", "filename": "libRecruitmentSimSensors.so"})
+                add(sensor_plugin, "namespace", "/" + robot_namespace)
+                add(sensor_plugin, "domain", domain)
+                if sensor_type == "camera":
+                    frame_id = sensor.findtext("camera/optical_frame_id", link.get("name"))
+                    camera_image = sensor.find("camera/image")
+                    if camera_image.find("format") is None:
+                        add(camera_image, "format", "R8G8B8")
+                elif sensor_type == "gpu_ray":
+                    frame_id = link.get("name")
+                else:
+                    frame_id = f"{robot_name}/{link.get('name')}/{sensor.get('name')}"
+                add(sensor_plugin, "frame_id", frame_id)
+        robot_path = os.path.join(temp_dir, robot_name + ".sdf")
+        ET.ElementTree(root).write(robot_path, encoding="unicode")
+        actions.append(Node(
+            package="gazebo_ros", executable="spawn_entity.py", name=f"spawn_{robot_name}",
+            output="screen", arguments=[
+                "-file", robot_path, "-entity", robot_name,
+                "-x", str(pose["x"]), "-y", str(pose["y"]), "-z", str(pose["z"]),
+                "-Y", str(pose["yaw"]), "-timeout", "120",
+                "--ros-args", "--log-level", infrastructure_log_level,
+            ],
+        ))
 
     actions.append(
         Node(
@@ -230,7 +287,6 @@ def _spawn_robots(context: LaunchContext):
             parameters=[
                 {
                     "use_sim_time": True,
-                    "robot_sdfs": ParameterValue(model_sdfs, value_type=List[str]),
                     "zone_enabled": os.path.basename(LaunchConfiguration("world_file").perform(context)) != "empty_world.sdf",
                     "zone_bounds": [float(v) for v in config.get("control_zone", {}).get("bounds", [-1.5, 1.5, -1.5, 1.5])],
                     "robot_names": [robot["name"] for robot in config["robots"]],
@@ -269,6 +325,35 @@ def _spawn_robots(context: LaunchContext):
                 ],
             ))
 
+    if LaunchConfiguration("player_web").perform(context).lower() in ("true", "1"):
+        infantry_colors = {
+            robot["color"] for robot in config["robots"]
+            if ROBOT_TOPIC_TYPES[robot["type"]] == "infantry"
+        }
+        if {"red", "blue"} <= infantry_colors:
+            actions.append(Node(
+                package="recruitment_sim_player_web",
+                executable="player_web",
+                name="player_web",
+                output="screen",
+                parameters=[
+                    {
+                        "robots_file": LaunchConfiguration("robots_file"),
+                        "port": ParameterValue(
+                            LaunchConfiguration("player_web_port"), value_type=int
+                        ),
+                        "red_camera_domain_id": int(ROBOT_DOMAIN_IDS["red/infantry"]),
+                        "blue_camera_domain_id": int(ROBOT_DOMAIN_IDS["blue/infantry"]),
+                    }
+                ],
+                arguments=["--ros-args", "--log-level", log_level],
+            ))
+        else:
+            actions.append(LogInfo(msg=(
+                "player_web skipped: the contest terminal needs one red and one blue "
+                "infantry robot in robots_file; partial rosters run without Web."
+            )))
+
     return actions
 
 
@@ -277,7 +362,7 @@ def generate_launch_description():
         raise RuntimeError("Internal ROS_DOMAIN_ID must differ from robot domains 20, 21, 30 and 31")
     bringup_share = get_package_share_directory("recruitment_sim_bringup")
     description_share = get_package_share_directory("recruitment_sim_description")
-    ros_gz_share = get_package_share_directory("ros_gz_sim")
+    gazebo_share = get_package_share_directory("gazebo_ros")
     default_world = os.path.join(
         description_share, "resource", "worlds", "rmul_2026h_world.sdf"
     )
@@ -287,18 +372,12 @@ def generate_launch_description():
     world_file = LaunchConfiguration("world_file")
     gui = LaunchConfiguration("gui")
     use_rviz = LaunchConfiguration("rviz")
-    use_player_web = LaunchConfiguration("player_web")
 
-    gz_launch_path = os.path.join(ros_gz_share, "launch", "gz_sim.launch.py")
-    gazebo_gui = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(gz_launch_path),
-        condition=IfCondition(gui),
-        launch_arguments={"gz_args": [world_file, " -r"]}.items(),
-    )
-    gazebo_headless = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(gz_launch_path),
-        condition=UnlessCondition(gui),
-        launch_arguments={"gz_args": [world_file, " -r -s"]}.items(),
+    # Gazebo resource paths were pinned in os.environ before the xmacro import,
+    # so the gzserver/gzclient processes below inherit them.
+    gazebo = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(os.path.join(gazebo_share, "launch", "gazebo.launch.py")),
+        launch_arguments={"world": world_file, "gui": gui, "verbose": "true"}.items(),
     )
 
     return LaunchDescription(
@@ -314,18 +393,7 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "infrastructure_log_level", default_value="warn"
             ),
-            gazebo_gui,
-            gazebo_headless,
-            Node(
-                package="ros_gz_bridge",
-                executable="parameter_bridge",
-                name="clock_bridge",
-                arguments=[
-                    "/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock",
-                    "--ros-args", "--log-level",
-                    LaunchConfiguration("infrastructure_log_level"),
-                ],
-            ),
+            gazebo,
             OpaqueFunction(function=_spawn_robots),
             Node(
                 package="rviz2",
@@ -333,24 +401,6 @@ def generate_launch_description():
                 condition=IfCondition(use_rviz),
                 arguments=["-d", LaunchConfiguration("rviz_config")],
                 output="screen",
-            ),
-            Node(
-                package="recruitment_sim_player_web",
-                executable="player_web",
-                name="player_web",
-                condition=IfCondition(use_player_web),
-                output="screen",
-                parameters=[
-                    {
-                        "robots_file": LaunchConfiguration("robots_file"),
-                        "port": ParameterValue(
-                            LaunchConfiguration("player_web_port"), value_type=int
-                        ),
-                        "red_camera_domain_id": int(ROBOT_DOMAIN_IDS["red/infantry"]),
-                        "blue_camera_domain_id": int(ROBOT_DOMAIN_IDS["blue/infantry"]),
-                    }
-                ],
-                arguments=["--ros-args", "--log-level", LaunchConfiguration("log_level")],
             ),
         ]
     )

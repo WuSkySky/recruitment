@@ -3,8 +3,6 @@ import os
 MODEL_URI_PREFIX = 'model://'
 
 sdf_paths = []
-if os.getenv("IGN_GAZEBO_RESOURCE_PATH") is not None:
-    sdf_paths = sdf_paths+os.getenv("IGN_GAZEBO_RESOURCE_PATH").split(":")
 if os.getenv("GAZEBO_MODEL_PATH") is not None:
     sdf_paths = sdf_paths+os.getenv("GAZEBO_MODEL_PATH").split(":")
 

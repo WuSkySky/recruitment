@@ -8,7 +8,7 @@
     <static>true</static>
     <link name="field">
       <!-- Colors sampled from figures 3-1 through 3-8 of the 2026 RMUL rules.
-           Values below are linear-RGB compensated for Ogre2 so their final
+           Values below are linear-RGB compensated for Classic Ogre so their final
            on-screen sRGB appearance matches the rulebook artwork. -->
       <visual name="field_ground_visual">
         <geometry>

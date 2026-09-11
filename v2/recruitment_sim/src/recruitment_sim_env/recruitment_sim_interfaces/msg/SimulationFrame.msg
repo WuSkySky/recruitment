@@ -1,0 +1,9 @@
+uint64 round_id
+int64 stamp_ns
+bool paused
+uint64 token
+string phase
+bool ready
+string error
+SimulationPosition[] positions
+SimulationEvent[] events

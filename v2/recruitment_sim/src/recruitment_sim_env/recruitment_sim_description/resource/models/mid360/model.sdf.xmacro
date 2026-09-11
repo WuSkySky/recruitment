@@ -22,11 +22,12 @@
         </geometry>
       </visual>
 
-      <sensor name="${prefix}mid360_lidar" type="gpu_lidar">
-        <ignition_frame_id>${prefix}mid360</ignition_frame_id>
+      <sensor name="${prefix}mid360_lidar" type="gpu_ray">
         <pose>0 0 0.03 0 0 0</pose>
         <always_on>true</always_on>
-        <visualize>true</visualize>
+        <!-- Classic 的 GUI 会把每条激光射线都画出来：1500x32 条、10 Hz、两台哨兵
+             足以让整个场景被射线网格覆盖。点云数据不受该开关影响。 -->
+        <visualize>false</visualize>
         <update_rate>${update_rate}</update_rate>
         <ray>
           <scan>
@@ -46,12 +47,12 @@
             <min>0.1</min>
             <max>40.0</max>
           </range>
-        </ray>
         <noise>
           <type>gaussian</type>
           <mean>0.0</mean>
           <stddev>0.01</stddev>
         </noise>
+        </ray>
       </sensor>
     </link>
   </xmacro_define_block>
