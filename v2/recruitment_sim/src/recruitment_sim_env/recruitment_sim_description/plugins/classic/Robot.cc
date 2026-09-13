@@ -183,14 +183,8 @@ private:
     // p_gain/i_gain。Classic 的 ODE 速度电机是软约束，纯速度指令在重力力矩下会有
     // 稳态爬行（实测约 0.002 rad/s），位置项把它压住，积分项消除残差。
     const double step = dt.count();
-    yaw_target_ += noisy_yaw_ * step;
-    pitch_target_ += noisy_pitch_ * step;
-    const double yaw_error = yaw_target_ - yaw_->Position(0);
-    const double pitch_error = pitch_target_ - pitch_->Position(0);
-    yaw_integral_ = std::clamp(yaw_integral_ + yaw_error * step, -.5, .5);
-    pitch_integral_ = std::clamp(pitch_integral_ + pitch_error * step, -.5, .5);
-    yaw_->SetParam("vel",0,std::clamp(noisy_yaw_ + 8.0*yaw_error + 2.0*yaw_integral_,-10.0,10.0));
-    pitch_->SetParam("vel",0,std::clamp(noisy_pitch_ + 8.0*pitch_error + 2.0*pitch_integral_,-10.0,10.0));
+    DriveGimbalJoint(yaw_, noisy_yaw_, step, yaw_target_, yaw_integral_);
+    DriveGimbalJoint(pitch_, noisy_pitch_, step, pitch_target_, pitch_integral_);
     SpawnPending(now);
     // Gazebo Classic 只在每 200 ms（墙钟）处理一次模型插入（World::processMsgsPeriod），
     // 所以 50 ms 连发时多枚弹丸会在同一仿真时刻、同一炮口位置被创建并互相碰撞销毁。
@@ -209,6 +203,24 @@ private:
     Odometry();
   }
   void PublishFeedback(const std::string & key, double value) {Float msg; msg.data=value; feedback_.at(key)->publish(msg);}
+  void DriveGimbalJoint(const gazebo::physics::JointPtr & joint, double command, double step,
+    double & target, double & integral) {
+    const double lower = joint->LowerLimit(0);
+    const double upper = joint->UpperLimit(0);
+    const double position = joint->Position(0);
+    // ODE 速度电机需要保留越过硬限位的少量位置误差，才能稳定抵住重力；严格钳到
+    // 限位会在限位反力和重力之间振荡。目标只允许进入有限保护带，并在反向时立即
+    // 同步到当前角度，避免先抵消长期积累的不可达目标和积分误差。
+    if((target > upper && command < 0) || (target < lower && command > 0)) {
+      target = position;
+      integral = 0;
+    }
+    constexpr double target_guard = 1.25;  // 8 * 1.25 reaches the 10 rad/s motor cap.
+    target = std::clamp(target + command * step, lower-target_guard, upper+target_guard);
+    const double error = target - position;
+    integral = std::clamp(integral + error * step, -.5, .5);
+    joint->SetParam("vel",0,std::clamp(command + 8.0*error + 2.0*integral,-10.0,10.0));
+  }
   void Odometry() {
     auto pose=chassis_->WorldPose(); auto v=chassis_->RelativeLinearVel(); auto w=chassis_->RelativeAngularVel();
     const double now=world_->SimTime().Double();

@@ -47,8 +47,10 @@ class Acceptance:
         self.robot = self.nodes[1]
         self.velocity = self.robot.create_publisher(Twist, '/red/infantry/cmd_chassis_vel', 10)
         self.yaw = self.robot.create_publisher(Float64, '/red/infantry/cmd_yaw_vel', 10)
+        self.pitch = self.robot.create_publisher(Float64, '/red/infantry/cmd_pitch_vel', 10)
         self.shoot = self.robot.create_publisher(Bool, '/red/infantry/cmd_shoot', 10)
         self.watch(self.robot, Float64, '/red/infantry/feedback_yaw_angle', 'yaw')
+        self.watch(self.robot, Float64, '/red/infantry/feedback_pitch_angle', 'pitch')
         self.watch(self.internal, RobotStatus, '/referee_system/red_infantry_robot/status', 'status', transient=True)
         self.control = self.internal.create_client(ControlMatch, '/referee_system/match/control')
         self.enable = self.internal.create_client(SetRobotEnabled, '/referee_system/red_infantry_robot/set_enabled')
@@ -132,6 +134,21 @@ class Acceptance:
         self.yaw.publish(Float64(data=0.)); self.spin(.3)
         rate = (self.latest['yaw'].data - before) / elapsed
         assert rate > .2, f'gimbal did not follow its velocity command (rate={rate:.3f} rad/s)'
+        # 到达机械限位后必须能立即反向，越界目标不能持续累积并阻塞反向。
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and self.latest['pitch'].data < .54:
+            self.pitch.publish(Float64(data=1.)); self.spin(.1)
+        upper = self.latest['pitch'].data
+        assert upper > .5, f'pitch did not reach its upper range ({upper:.3f} rad)'
+        for _ in range(10):
+            self.pitch.publish(Float64(data=1.)); self.spin(.1)
+        upper = self.latest['pitch'].data
+        for _ in range(6):
+            self.pitch.publish(Float64(data=-1.)); self.spin(.1)
+        reversed_pitch = self.latest['pitch'].data
+        self.pitch.publish(Float64(data=0.)); self.spin(.2)
+        assert upper - reversed_pitch > .05, (
+            f'pitch did not reverse at its upper limit ({upper:.3f} -> {reversed_pitch:.3f} rad)')
         before = self.latest['status'].total_shots
         self.shoot.publish(Bool(data=True)); self.spin(1)
         self.shoot.publish(Bool(data=False)); self.spin(.5)
@@ -159,7 +176,8 @@ class Acceptance:
         return {'resets': resets, 'message_counts': self.count}
 
     def close(self):
-        self.velocity.publish(Twist()); self.yaw.publish(Float64(data=0.)); self.shoot.publish(Bool(data=False))
+        self.velocity.publish(Twist()); self.yaw.publish(Float64(data=0.)); self.pitch.publish(Float64(data=0.))
+        self.shoot.publish(Bool(data=False))
         self.spin(.1)
         for node in self.nodes:
             node.destroy_node()
