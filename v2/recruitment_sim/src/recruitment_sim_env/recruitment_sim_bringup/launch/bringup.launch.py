@@ -61,6 +61,10 @@ def _configure_gazebo_environment():
     # The project ships every model it needs, so never contact the online model
     # database: a network stall there is indistinguishable from a hang.
     os.environ["GAZEBO_MODEL_DATABASE_URI"] = ""
+    # gazebo_ros_init advertises Gazebo's end-of-life with an ASCII banner on
+    # Gazebo < 11.15. That is version advertisement rather than diagnostics, so
+    # drop it unless the shell opts back in with GAZEBO_SUPPRESS_EOL_WARNING=0.
+    os.environ.setdefault("GAZEBO_SUPPRESS_EOL_WARNING", "1")
 
 
 _configure_gazebo_environment()
@@ -372,12 +376,17 @@ def generate_launch_description():
     world_file = LaunchConfiguration("world_file")
     gui = LaunchConfiguration("gui")
     use_rviz = LaunchConfiguration("rviz")
+    gazebo_verbose = LaunchConfiguration("verbose")
 
     # Gazebo resource paths were pinned in os.environ before the xmacro import,
-    # so the gzserver/gzclient processes below inherit them.
+    # so the gzserver/gzclient processes below inherit them. Gazebo's own
+    # `verbose` switch is off by default: it only adds the version banner, the
+    # `[Msg]` connection chatter and `[Dbg]` plugin output on every startup.
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(gazebo_share, "launch", "gazebo.launch.py")),
-        launch_arguments={"world": world_file, "gui": gui, "verbose": "true"}.items(),
+        launch_arguments={
+            "world": world_file, "gui": gui, "verbose": gazebo_verbose
+        }.items(),
     )
 
     return LaunchDescription(
@@ -393,6 +402,7 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "infrastructure_log_level", default_value="warn"
             ),
+            DeclareLaunchArgument("verbose", default_value="false"),
             gazebo,
             OpaqueFunction(function=_spawn_robots),
             Node(

@@ -78,6 +78,12 @@ ros2 launch recruitment_sim_bringup bringup.launch.py \
 默认隐藏机器人生成器和小消息网关的常规 INFO 日志，核心节点仍保持 INFO 级别。如需查看完整
 基础设施日志，可传入 `infrastructure_log_level:=info`。
 
+Gazebo 自身的 `verbose` 默认为关闭：打开后每次启动都会多打印版本横幅、连接 master 的
+`[Msg]` 行以及插件的 `[Dbg]` 行。排查模型或插件加载问题时可用 `verbose:=true`。
+Gazebo 11 的 end-of-life ASCII 横幅默认被抑制（启动文件设置
+`GAZEBO_SUPPRESS_EOL_WARNING=1`），如需恢复该提示，可在 shell 中
+`export GAZEBO_SUPPRESS_EOL_WARNING=0`。
+
 如不需要 Web 端，可显式关闭：
 
 ```bash
