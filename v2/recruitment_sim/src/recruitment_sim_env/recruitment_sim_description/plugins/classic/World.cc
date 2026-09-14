@@ -33,7 +33,6 @@ public:
           lock.unlock(); world_->SetPaused(true); lock.lock(); phase_="PAUSED";
         } else if(req->operation==Control::Request::RESET && world_->IsPaused() && Ready()) {
           State().round=req->round_id; State().events.clear();
-          for(const auto & name:State().projectiles) world_->RemoveModel(name);
           phase_="RESETTING";
           for(const auto & name:names_) {
             auto & robot=State().robots.at(name);
@@ -53,11 +52,12 @@ public:
       std::lock_guard<std::recursive_mutex> lock(State().mutex);
       if(!*alive) return;
       if(phase_=="RESETTING") {
-        bool cleared=true;
-        for(const auto & name:State().projectiles) {
-          if(world_->ModelByName(name)) {world_->RemoveModel(name); cleared=false;}
+        bool reset_complete=Ready();
+        for(const auto & name:names_) {
+          const auto it=State().robots.find(name);
+          if(it==State().robots.end() || !it->second.projectiles_idle()) reset_complete=false;
         }
-        if(cleared) {State().projectiles.clear(); phase_="READY";}
+        if(reset_complete) phase_="READY";
       }
       if(world_->IsPaused() || !Ready()) Publish();
     });
@@ -65,7 +65,10 @@ public:
 private:
   bool Ready() const {
     if(names_.empty()) return false;
-    for(const auto & name:names_) if(!State().robots.count(name)) return false;
+    for(const auto & name:names_) {
+      const auto it=State().robots.find(name);
+      if(it==State().robots.end() || !it->second.ready()) return false;
+    }
     return true;
   }
   void Publish() {

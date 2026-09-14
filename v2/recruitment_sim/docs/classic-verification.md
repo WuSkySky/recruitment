@@ -266,15 +266,17 @@ ROS_DOMAIN_ID=101 python3 src/recruitment_sim_env/recruitment_sim_bringup/test/s
     即相邻弹丸在炮口互相命中。根因是 Gazebo Classic 的 `World::processMsgsPeriod` 固定为
     **200 ms（墙钟）**，模型插入消息每 200 ms 才处理一次；而射击间隔是 50 ms，于是 3–4 发
     弹丸会在**同一个仿真时刻、同一个炮口位姿**被创建，彼此重叠后在第一帧就互相碰撞。
-    原始 Fortress 实现有一条 `spawnedProjectiles.empty() || back().isInit` 的约束来规避，
-    迁移时丢失。修复：恢复该约束，`launcher_ready = projectiles_.empty() || back().spawned`，
-    即上一枚弹丸真正生成后才允许发下一枚。
+    早期修复曾恢复“等待上一枚完成插入”的约束，避免重叠，但实际射速因此受限在约
+    5 发/秒。最终方案改为每台机器人在加载时预创建 100 枚固定名称弹丸，并停放在场地下方；
+    全部槽的 model/link/collision 句柄可用后机器人才能 ready。射击时直接启用一个空闲槽，
+    清除原速度、角速度、力和力矩，设置炮口位姿、重力、碰撞和带方向噪声的 18 m/s 世界速度。
+    命中或飞行超过 4 秒后关闭碰撞和重力并回收，不删除模型。固定槽名与每次激活生成的逻辑
+    `projectile_id` 分离，接触回调按固定模型名直接索引槽位，每次激活最多上报一次 HIT。
 
-    修复后实测：射击间隔稳定在 ~190 ms（受 200 ms 消息周期限制），每一发都命中
-    `RMUL_2026` 场地后被回收；开火中世界内 2 枚弹丸、停火 2.5 s 后归零、重置后
-    `get_model_list` 只剩 `RMUL_2026` 与 4 台机器人。
-    **副作用**：实际射速上限约 5 发/秒，低于原设计的 20 发/秒；这是 Classic 实体插入
-    周期的平台限制，若要恢复 20 发/秒需要改为预创建弹丸池并复用实体。
+    专用高热量夹具连续射击 6.2 个仿真秒的实测结果为 125 发，SHOT 间隔最小/最大均为
+    0.050 s，125 发均只有一次 HIT；发射数超过池容量，证明槽位已成功回收复用。RESET 后
+    没有旧轮次事件泄漏，首个新逻辑弹丸 ID 恢复为 0。默认四机器人启动时四个 100 槽池均
+    在首次 CONFIG 的 60 秒宽限内就绪，比赛生命周期连续重置 2 次通过。
 11. 移除默认世界的通用 `ground_plane`。`rmul_2026h_world.sdf` 原本沿用参考工程的
     100 × 100 m 静态平面（浅灰可视 + `mu=100/mu2=50` 摩擦），而场地模型 `RMUL_2026`
     自带完整碰撞网格 `RMUL_2026H.stl`（含地面），机器人实际踩在后者上。
@@ -331,13 +333,15 @@ IMU `187–194 Hz`、里程计与云台反馈 `98 Hz`；CPU 为 gzserver ≈ 1.7
 
 ## 11. 复现方式
 
-`recruitment_sim_bringup/test/` 下提供三个手动验收脚本，都需要先启动 bringup 并在同一
+`recruitment_sim_bringup/test/` 下提供四个手动验收脚本，都需要先启动 bringup 并在相应
 内部域运行：
 
 - `classic_acceptance.py`：四机器人或 `--single` 单机器人的接口、控制、射击、失能与
   连续重置验收。
 - `web_acceptance.py`：Web 静态页、角色互斥、键鼠输入、WebRTC 与裁判控制链路验收。
 - `sensor_probe.py`：相机、IMU、雷达数据抽样与俯视可视化。
+- `projectile_pool_acceptance.py`：配合 `projectile_pool_robots.yaml` 验证 20 Hz 连射、
+  超过 100 发后的槽位复用、HIT 唯一性和 RESET 隔离。
 
 它们不注册进 `colcon test`，因为需要一个正在运行的仿真；自动化单元测试仍由
 `colcon test` 覆盖。

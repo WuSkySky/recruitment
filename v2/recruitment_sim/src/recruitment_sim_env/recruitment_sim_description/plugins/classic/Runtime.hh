@@ -16,7 +16,9 @@ using Event = recruitment_sim_interfaces::msg::SimulationEvent;
 struct RobotHandle {
   gazebo::physics::ModelPtr model;
   ignition::math::Pose3d spawn;
+  std::function<bool()> ready;
   std::function<void()> reset;
+  std::function<bool()> projectiles_idle;
   std::function<void()> contacts;
 };
 struct SharedState {
@@ -24,7 +26,6 @@ struct SharedState {
   uint64_t round{0};
   std::vector<Event> events;
   std::map<std::string, RobotHandle> robots;
-  std::vector<std::string> projectiles;
 };
 SharedState & State();
 class Domain {

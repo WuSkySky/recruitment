@@ -1,0 +1,17 @@
+world_name: empty
+control_zone:
+  bounds: [-1.5, 1.5, -1.5, 1.5]
+robots:
+  - name: pool_test_sentry_robot
+    type: pb2025_sentry_robot
+    color: red
+    projectile_noise: {yaw_angle_variance: 0.0, pitch_angle_variance: 0.0}
+    referee:
+      max_hp: 400
+      heat_limit: 1000000.0
+      cooling_rate: 30.0
+    pose:
+      x: 0.0
+      y: 0.0
+      z: 0.1
+      yaw: 0.0

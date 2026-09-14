@@ -118,9 +118,9 @@ ros2 launch recruitment_sim_bringup bringup.launch.py \
 - `/<team>/<type>/feedback_yaw_angle`、`feedback_pitch_angle`：`std_msgs/msg/Float64`
   云台相对初始朝前位置的单圈角度，单位为 `rad`，范围为 `[-π, π]`，以 100 Hz 发布。
 - `/<team>/<type>/cmd_shoot`：`std_msgs/msg/Bool` 射击开关；`true` 时以固定 `18 m/s` 弹速持续射击，
-  最小间隔 50 ms，必须显式发送 `false` 才会停止。**实际射速上限约 5 发/秒**：Gazebo Classic
-  每 200 ms（墙钟）才处理一次实体插入消息（`World::processMsgsPeriod`），所以插件必须等上一枚
-  弹丸真正生成后再发下一枚，否则多枚弹丸会在同一仿真时刻、同一炮口位置被创建而互相碰撞销毁。
+  最小间隔 50 ms（20 发/秒），必须显式发送 `false` 才会停止。每台机器人启动时预创建
+  100 枚固定弹丸；射击时复用空闲槽并重置位姿、速度、重力和碰撞状态，不再受 Gazebo Classic
+  200 ms 实体插入周期限制。固定模型名仅代表池槽，每次激活仍生成独立的逻辑 `projectile_id`。
 - `/<team>/<type>/robot_base/set_light_color`：灯条颜色服务，0–4 对应关闭、红、蓝、黄、白。
   机器人插件通过 Classic `Visual` 消息更新实际渲染材质，暂停仿真时也接受改色。
   修改插件并重新构建后需要重启 Gazebo 才会加载新的动态库；仅重新调用服务不会更新已加载的插件。
@@ -257,11 +257,11 @@ ros2 topic echo /referee_system/match/info
 比赛时长 300 秒，双方从 200 胜利点开始。存活机器人的底盘中心进入中央 `3 × 3 m` 区域后按
 先到先得占领；离区保留 2 秒，占领每满 1 秒扣对方 1 点。机器人首次战亡使己方扣 20 点。
 胜利点归零立即结束；时间耗尽后依次比较胜利点、全队实际攻击伤害和总剩余血量，仍相同则平局。
-人工结束的结果为 `ABORTED`。结束会失能机器人并暂停 Gazebo。`RESUME` 会清除旧弹丸，恢复出生
+人工结束的结果为 `ABORTED`。结束会失能机器人并暂停 Gazebo。`RESUME` 会回收所有活动弹丸，恢复出生
 位姿、满血、零热量、200:200、执行器初始状态及 `robots.yaml` 配置的装甲板灯条颜色，再恢复
 仿真并进入 `READY`；`START` 只从该状态
 开始 300 秒裁判计时，不再隐式重置。生命周期复位保留传感器并原地重置机器人，
-通过 Classic API 恢复关节、速度和控制状态，等待旧弹丸实际删除后才继续初始化。
+通过 Classic API 恢复关节、速度和控制状态，等待全部弹丸池槽回到空闲状态后才继续初始化。
 
 本阶段不包含撞击伤害、42 mm 弹丸、回血复活、弹量限制、射击初速度处罚、准备阶段和 BO 管理。
 
@@ -315,4 +315,3 @@ ROS_DOMAIN_ID=101 python3 src/recruitment_sim_env/recruitment_sim_bringup/test/s
 
 它们不注册进 `colcon test`，因为需要一个正在运行的仿真；自动化单元测试仍由 `colcon test`
 覆盖。请在专用验证实例上运行这些脚本，不要对正在进行的比赛执行。
-

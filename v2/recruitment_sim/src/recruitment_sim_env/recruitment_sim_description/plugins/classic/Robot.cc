@@ -20,8 +20,10 @@
 #include <std_msgs/msg/bool.hpp>
 #include <ignition/math/PID.hh>
 #include <algorithm>
+#include <chrono>
 #include <sstream>
 #include <iomanip>
+#include <unordered_map>
 
 namespace recruitment_sim {
 namespace base = recruitment_sim_robot_base;
@@ -33,13 +35,22 @@ class Robot : public gazebo::ModelPlugin {
   using Float = std_msgs::msg::Float64;
   using Odom = nav_msgs::msg::Odometry;
   struct Projectile {
-    std::string name; uint64_t id; double requested; ignition::math::Vector3d velocity;
-    bool spawned{false}, removed{false};
+    std::string name;
+    gazebo::physics::ModelPtr model;
+    gazebo::physics::LinkPtr link;
+    gazebo::physics::CollisionPtr collision;
+    uint64_t id{0};
+    double activated{-1};
+    bool initialized{false}, active{false};
   };
 public:
   ~Robot() override {
     update_.reset(); end_.reset();
     {std::lock_guard<std::recursive_mutex> lock(State().mutex); *alive_ = false; State().robots.erase(name_);}
+    // A round reset keeps the pool, but removing the owning robot must not
+    // leave fixed-name pool models behind and block a later respawn.
+    if(world_ && world_->Running())
+      for(const auto & projectile:projectiles_) if(projectile.model) world_->RemoveModel(projectile.model);
     if(domain_) domain_->Remove(node_);
     if(sensor_domain_) sensor_domain_->Remove(sensor_node_);
   }
@@ -66,6 +77,8 @@ public:
     sensor_domain_ = GetDomain(sdf->Get<unsigned int>("sensor_domain"));
     sensor_node_ = sensor_domain_->Node("chassis_sensor", ns_);
     use_odom_ = sdf->Get<bool>("use_odometry");
+    pool_size_ = sdf->Get<unsigned int>("projectile_pool_size");
+    if(pool_size_ == 0) throw std::runtime_error("projectile_pool_size must be positive");
     direction_.Configure(sdf->Get<double>("yaw_angle_variance"), sdf->Get<double>("pitch_angle_variance"));
     auto config = sdf->GetElement("noise");
     for(auto el = config->GetFirstElement(); el; el = el->GetNextElement())
@@ -119,8 +132,10 @@ public:
         res->success = req->color <= 4; if(res->success) {color_ = req->color; UpdateLights();}
       }));
     x_pid_.Init(100,0,0,0,0,100,-100,0); y_pid_.Init(500,0,0,0,0,200,-200,0); w_pid_.Init(200,0,0,0,0,100,-100,0);
+    CreateProjectilePool();
     {std::lock_guard<std::recursive_mutex> lock(State().mutex);
-      State().robots[name_] = {model_, model_->WorldPose(), [this] {ResetPhysics();}, [this] {Contacts();}};
+      State().robots[name_] = {model_, model_->WorldPose(), [this] {return pool_ready_;},
+        [this] {ResetPhysics();}, [this] {return ProjectilesIdle();}, [this] {Contacts();}};
     }
     world_->Physics()->GetContactManager()->SetNeverDropContacts(true);
     update_ = gazebo::event::Events::ConnectWorldUpdateBegin(Safe([this](const gazebo::common::UpdateInfo &) {Update();}));
@@ -141,7 +156,8 @@ private:
     model_->SetLinearVel({0,0,0}); model_->SetAngularVel({0,0,0});
     // 关节已回到 0，位置保持的目标与积分也必须归零，否则云台会自己转回去。
     yaw_target_ = pitch_target_ = yaw_integral_ = pitch_integral_ = 0;
-    projectiles_.clear(); shot_id_ = 0; last_shot_ = -1; odom_initialized_ = false;
+    for(auto & projectile:projectiles_) if(projectile.initialized) Deactivate(projectile);
+    shot_id_ = 0; last_shot_ = -1; odom_initialized_ = false;
     last_control_ = last_feedback_ = last_odom_ = last_truth_pub_ = -1;
   }
   void UpdateLights() {
@@ -162,6 +178,7 @@ private:
   }
   void Update() {
     const double now = world_->SimTime().Double();
+    DiscoverProjectilePool();
     if(world_->IsPaused()) return;
     if(now-last_control_ >= .01 || last_control_<0) {
       last_control_ = now;
@@ -185,13 +202,9 @@ private:
     const double step = dt.count();
     DriveGimbalJoint(yaw_, noisy_yaw_, step, yaw_target_, yaw_integral_);
     DriveGimbalJoint(pitch_, noisy_pitch_, step, pitch_target_, pitch_integral_);
-    SpawnPending(now);
-    // Gazebo Classic 只在每 200 ms（墙钟）处理一次模型插入（World::processMsgsPeriod），
-    // 所以 50 ms 连发时多枚弹丸会在同一仿真时刻、同一炮口位置被创建并互相碰撞销毁。
-    // 原始 Fortress 实现用“上一枚完成初始化后才发下一枚”规避，这里恢复该约束。
-    const bool launcher_ready = projectiles_.empty() || projectiles_.back().spawned;
-    if(shooting_ && enabled_.shooter_enabled() && launcher_ready && (last_shot_<0 || now-last_shot_ >= .05-1e-9)) {
-      Shoot(now); last_shot_ = now;
+    UpdateProjectiles(now);
+    if(shooting_ && enabled_.shooter_enabled() && pool_ready_ && (last_shot_<0 || now-last_shot_ >= .05-1e-9)) {
+      if(Shoot(now)) last_shot_ = now;
     }
     if(last_feedback_<0 || now-last_feedback_ >= .01-1e-9) {
       last_feedback_=now;
@@ -251,40 +264,116 @@ private:
     msg.twist.twist.angular.z=Noise("sensor_chassis_yaw_velocity_variance",w.Z());
     odom_pub_->publish(msg);
   }
-  void Shoot(double now) {
-    const auto pose=muzzle_->WorldPose()*ignition::math::Pose3d(.15,0,0,0,0,0);
-    Projectile p{name_+"_projectile_"+std::to_string(State().round)+"_"+std::to_string(shot_id_),shot_id_++,now,pose.Rot().RotateVector(direction_.Sample(18))};
-    std::ostringstream xml; xml<<std::setprecision(17)<<"<sdf version='1.6'><model name='"<<p.name<<"'><pose>"<<pose<<"</pose><link name='link'><inertial><mass>0.0032</mass><inertia><ixx>9.03168e-8</ixx><iyy>9.03168e-8</iyy><izz>9.03168e-8</izz></inertia></inertial><collision name='collision'><geometry><sphere><radius>0.0084</radius></sphere></geometry></collision><visual name='visual'><geometry><sphere><radius>0.0084</radius></sphere></geometry><material><ambient>0 0.6 0 1</ambient><diffuse>0 0.6 0 1</diffuse><emissive>0 0.6 0 1</emissive></material></visual></link></model></sdf>";
-    world_->InsertModelString(xml.str()); State().projectiles.push_back(p.name); projectiles_.push_back(p);
+  ignition::math::Pose3d ParkedPose(std::size_t index) const {
+    return {0,0,-100.0-static_cast<double>(index)*.05,0,0,0};
   }
-  void SpawnPending(double now) {
-    for(auto & p:projectiles_) {
-      if(p.removed) {world_->RemoveModel(p.name); continue;}
-      auto model=world_->ModelByName(p.name);
-      if(!p.spawned && model) {
-        model->SetLinearVel(p.velocity); p.spawned=true;
-        Event event; event.kind=Event::SHOT; event.shooter=name_; event.projectile_id=p.id; State().events.push_back(event);
-      }
-      if(now-p.requested>4 && model) {world_->RemoveModel(model); p.removed=true;}
+  void CreateProjectilePool() {
+    pool_requested_at_=std::chrono::steady_clock::now();
+    projectiles_.reserve(pool_size_);
+    for(unsigned int index=0; index<pool_size_; ++index) {
+      Projectile projectile;
+      projectile.name=name_+"_projectile_pool_"+std::to_string(index);
+      projectile_index_.emplace(projectile.name,index);
+      const auto pose=ParkedPose(index);
+      std::ostringstream xml;
+      xml<<std::setprecision(17)<<"<sdf version='1.6'><model name='"<<projectile.name<<"'><pose>"<<pose
+        <<"</pose><link name='link'><gravity>false</gravity><inertial><mass>0.0032</mass>"
+        <<"<inertia><ixx>9.03168e-8</ixx><iyy>9.03168e-8</iyy><izz>9.03168e-8</izz></inertia></inertial>"
+        <<"<collision name='collision'><geometry><sphere><radius>0.0084</radius></sphere></geometry></collision>"
+        <<"<visual name='visual'><geometry><sphere><radius>0.0084</radius></sphere></geometry>"
+        <<"<material><ambient>0 0.6 0 1</ambient><diffuse>0 0.6 0 1</diffuse>"
+        <<"<emissive>0 0.6 0 1</emissive></material></visual></link></model></sdf>";
+      world_->InsertModelString(xml.str());
+      projectiles_.push_back(std::move(projectile));
     }
-    projectiles_.erase(std::remove_if(projectiles_.begin(),projectiles_.end(),[](const auto & p){return p.removed;}),projectiles_.end());
+  }
+  void DiscoverProjectilePool() {
+    if(pool_ready_ || pool_failed_) return;
+    std::size_t initialized=0;
+    for(std::size_t index=0; index<projectiles_.size(); ++index) {
+      auto & projectile=projectiles_[index];
+      if(projectile.initialized) {++initialized; continue;}
+      auto model=world_->ModelByName(projectile.name);
+      if(!model) continue;
+      auto link=model->GetLink("link");
+      auto collision=link ? link->GetCollision("collision") : gazebo::physics::CollisionPtr{};
+      if(!link || !collision) {
+        gzerr<<"Projectile pool slot ["<<projectile.name<<"] is missing link/collision.\n";
+        pool_failed_=true;
+        return;
+      }
+      projectile.model=model; projectile.link=link; projectile.collision=collision; projectile.initialized=true;
+      Deactivate(projectile); ++initialized;
+    }
+    if(initialized==projectiles_.size()) {
+      pool_ready_=true;
+      gzdbg<<"Projectile pool ready for ["<<name_<<"] with "<<projectiles_.size()<<" slots.\n";
+    } else if(std::chrono::steady_clock::now()-pool_requested_at_>std::chrono::seconds(30)) {
+      std::ostringstream missing;
+      for(const auto & projectile:projectiles_)
+        if(!projectile.initialized) missing<<" "<<projectile.name;
+      gzerr<<"Projectile pool creation timed out for ["<<name_
+           <<"]; missing slots:"<<missing.str()<<"\n";
+      pool_failed_=true;
+    }
+  }
+  void Deactivate(Projectile & projectile) {
+    // SetCollideMode updates both ODE category and collide masks.
+    projectile.link->SetCollideMode("none");
+    projectile.model->SetGravityMode(false);
+    projectile.model->ResetPhysicsStates();
+    projectile.model->SetWorldPose(ParkedPose(&projectile-projectiles_.data()));
+    projectile.model->SetEnabled(false);
+    projectile.active=false; projectile.activated=-1;
+  }
+  bool ProjectilesIdle() const {
+    return pool_ready_ && std::none_of(projectiles_.begin(),projectiles_.end(),
+      [](const auto & projectile){return projectile.active;});
+  }
+  bool Shoot(double now) {
+    auto it=std::find_if(projectiles_.begin(),projectiles_.end(),
+      [](const auto & projectile){return projectile.initialized && !projectile.active;});
+    if(it==projectiles_.end()) {
+      if(last_pool_error_<0 || now-last_pool_error_>=1) {
+        gzerr<<"Projectile pool exhausted for ["<<name_<<"]; shot will be retried.\n";
+        last_pool_error_=now;
+      }
+      return false;
+    }
+    const auto pose=muzzle_->WorldPose()*ignition::math::Pose3d(.15,0,0,0,0,0);
+    auto & projectile=*it;
+    projectile.model->SetEnabled(true);
+    projectile.model->SetWorldPose(pose);
+    projectile.model->ResetPhysicsStates();
+    projectile.model->SetGravityMode(true);
+    projectile.link->SetCollideMode("all");
+    projectile.model->SetLinearVel(pose.Rot().RotateVector(direction_.Sample(18)));
+    projectile.id=shot_id_++; projectile.activated=now; projectile.active=true;
+    Event event; event.kind=Event::SHOT; event.shooter=name_; event.projectile_id=projectile.id;
+    State().events.push_back(event);
+    return true;
+  }
+  void UpdateProjectiles(double now) {
+    for(auto & projectile:projectiles_)
+      if(projectile.active && now-projectile.activated>4) Deactivate(projectile);
   }
   void Contacts() {
     if(world_->IsPaused()) return;
     auto manager=world_->Physics()->GetContactManager();
     for(unsigned int i=0;i<manager->GetContactCount();++i) {
       auto c=manager->GetContacts()[i]; if(!c->collision1 || !c->collision2 || !c->collision1->GetLink() || !c->collision2->GetLink()) continue;
-      for(auto & p:projectiles_) {
-        if(!p.spawned || p.removed) continue;
-        gazebo::physics::Collision * target=nullptr;
-        if(c->collision1->GetModel()->GetName()==p.name) target=c->collision2;
-        else if(c->collision2->GetModel()->GetName()==p.name) target=c->collision1;
-        if(!target) continue;
-        Event event; event.kind=Event::HIT; event.shooter=name_; event.projectile_id=p.id;
-        event.target=target->GetModel()->GetName(); event.target_link=target->GetLink()->GetName(); event.target_collision=target->GetName();
-        State().events.push_back(event); p.removed=true;
-      }
+      HandleContact(c->collision1,c->collision2);
+      HandleContact(c->collision2,c->collision1);
     }
+  }
+  void HandleContact(gazebo::physics::Collision * source, gazebo::physics::Collision * target) {
+    const auto found=projectile_index_.find(source->GetModel()->GetName());
+    if(found==projectile_index_.end()) return;
+    auto & projectile=projectiles_[found->second];
+    if(!projectile.active) return;
+    Event event; event.kind=Event::HIT; event.shooter=name_; event.projectile_id=projectile.id;
+    event.target=target->GetModel()->GetName(); event.target_link=target->GetLink()->GetName(); event.target_collision=target->GetName();
+    State().events.push_back(event); Deactivate(projectile);
   }
   std::shared_ptr<bool> alive_{std::make_shared<bool>(true)};
   gazebo::physics::ModelPtr model_; gazebo::physics::WorldPtr world_;
@@ -297,10 +386,12 @@ private:
   geometry_msgs::msg::Twist command_,noisy_command_;
   double yaw_cmd_{0},pitch_cmd_{0},noisy_yaw_{0},noisy_pitch_{0}; bool shooting_{false},use_odom_{false};
   double yaw_target_{0},pitch_target_{0},yaw_integral_{0},pitch_integral_{0};
-  uint64_t epoch_{0},init_epoch_{0},shot_id_{0}; unsigned int color_{0};
-  bool initialized_request_{false},odom_initialized_{false}; base::PlanarPose last_truth_,integrated_;
-  double last_control_{-1},last_feedback_{-1},last_odom_{-1},last_shot_{-1},last_truth_pub_{-1};
+  uint64_t epoch_{0},init_epoch_{0},shot_id_{0}; unsigned int color_{0},pool_size_{0};
+  bool initialized_request_{false},odom_initialized_{false},pool_ready_{false},pool_failed_{false}; base::PlanarPose last_truth_,integrated_;
+  double last_control_{-1},last_feedback_{-1},last_odom_{-1},last_shot_{-1},last_truth_pub_{-1},last_pool_error_{-1};
   std::vector<Projectile> projectiles_;
+  std::unordered_map<std::string,std::size_t> projectile_index_;
+  std::chrono::steady_clock::time_point pool_requested_at_;
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr chassis_sub_;
   rclcpp::Subscription<Float>::SharedPtr yaw_sub_,pitch_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr shoot_sub_;
