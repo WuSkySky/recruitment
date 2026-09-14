@@ -33,7 +33,20 @@ public:
       image_=node_->create_publisher<sensor_msgs::msg::Image>("camera/image",qos);
       info_=node_->create_publisher<sensor_msgs::msg::CameraInfo>("camera/camera_info",qos);
     } else if(imu_) imu_pub_=node_->create_publisher<sensor_msgs::msg::Imu>("gimbal_imu",qos);
-    else if(lidar_) cloud_=node_->create_publisher<sensor_msgs::msg::PointCloud2>("livox/lidar",qos);
+    else if(lidar_) {
+      cloud_=node_->create_publisher<sensor_msgs::msg::PointCloud2>("livox/lidar",qos);
+      const int width=lidar_->RangeCount(),height=lidar_->VerticalRangeCount();
+      range_min_=lidar_->RangeMin();range_max_=lidar_->RangeMax();
+      direction_x_.resize(width*height);direction_y_.resize(width*height);direction_z_.resize(width*height);
+      for(int row=0;row<height;++row) for(int col=0;col<width;++col) {
+        const int index=row*width+col;
+        const double yaw=lidar_->AngleMin().Radian()+col*(lidar_->AngleMax()-lidar_->AngleMin()).Radian()/std::max(1,width-1);
+        const double pitch=lidar_->VerticalAngleMin().Radian()+row*(lidar_->VerticalAngleMax()-lidar_->VerticalAngleMin()).Radian()/std::max(1,height-1);
+        direction_x_[index]=std::cos(pitch)*std::cos(yaw);
+        direction_y_[index]=std::cos(pitch)*std::sin(yaw);
+        direction_z_[index]=std::sin(pitch);
+      }
+    }
     else throw std::runtime_error("unsupported Classic sensor type");
     auto alive=alive_; auto mutex=mutex_;
     connection_=sensor_->ConnectUpdated([this,alive,mutex] {
@@ -70,10 +83,8 @@ private:
       sensor_msgs::PointCloud2Iterator<float> x(msg,"x"),y(msg,"y"),z(msg,"z"),intensity(msg,"intensity");
       for(int row=0;row<height;++row) for(int col=0;col<width;++col,++x,++y,++z,++intensity) {
         const int index=row*width+col;const double r=ranges[index];
-        const double yaw=lidar_->AngleMin().Radian()+col*(lidar_->AngleMax()-lidar_->AngleMin()).Radian()/std::max(1,width-1);
-        const double pitch=lidar_->VerticalAngleMin().Radian()+row*(lidar_->VerticalAngleMax()-lidar_->VerticalAngleMin()).Radian()/std::max(1,height-1);
-        if(!std::isfinite(r) || r<lidar_->RangeMin() || r>lidar_->RangeMax()) *x=*y=*z=std::numeric_limits<float>::quiet_NaN();
-        else {*x=r*std::cos(pitch)*std::cos(yaw);*y=r*std::cos(pitch)*std::sin(yaw);*z=r*std::sin(pitch);}
+        if(!std::isfinite(r) || r<range_min_ || r>range_max_) *x=*y=*z=std::numeric_limits<float>::quiet_NaN();
+        else {*x=r*direction_x_[index];*y=r*direction_y_[index];*z=r*direction_z_[index];}
         *intensity=lidar_->Retro(index);
       }
       cloud_->publish(msg);
@@ -81,6 +92,7 @@ private:
   }
   gazebo::sensors::SensorPtr sensor_; gazebo::sensors::CameraSensorPtr camera_;
   gazebo::sensors::ImuSensorPtr imu_;gazebo::sensors::GpuRaySensorPtr lidar_;
+  std::vector<float> direction_x_,direction_y_,direction_z_;double range_min_{0},range_max_{0};
   gazebo::event::ConnectionPtr connection_;std::shared_ptr<Domain> domain_;rclcpp::Node::SharedPtr node_;
   std::string frame_;std::shared_ptr<bool> alive_{std::make_shared<bool>(true)};
   std::shared_ptr<std::mutex> mutex_{std::make_shared<std::mutex>()};

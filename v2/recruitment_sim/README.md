@@ -118,8 +118,8 @@ ros2 launch recruitment_sim_bringup bringup.launch.py \
 - `/<team>/<type>/feedback_yaw_angle`、`feedback_pitch_angle`：`std_msgs/msg/Float64`
   云台相对初始朝前位置的单圈角度，单位为 `rad`，范围为 `[-π, π]`，以 100 Hz 发布。
 - `/<team>/<type>/cmd_shoot`：`std_msgs/msg/Bool` 射击开关；`true` 时以固定 `18 m/s` 弹速持续射击，
-  最小间隔 50 ms（20 发/秒），必须显式发送 `false` 才会停止。每台机器人启动时预创建
-  100 枚固定弹丸；射击时复用空闲槽并重置位姿、速度、重力和碰撞状态，不再受 Gazebo Classic
+  最小间隔 50 ms（20 发/秒），必须显式发送 `false` 才会停止。每台步兵启动时预创建 15 枚、
+  每台哨兵预创建 35 枚固定弹丸；射击时复用空闲槽并重置位姿、速度、重力和碰撞状态，不再受 Gazebo Classic
   200 ms 实体插入周期限制。固定模型名仅代表池槽，每次激活仍生成独立的逻辑 `projectile_id`。
 - `/<team>/<type>/robot_base/set_light_color`：灯条颜色服务，0–4 对应关闭、红、蓝、黄、白。
   机器人插件通过 Classic `Visual` 消息更新实际渲染材质，暂停仿真时也接受改色。
@@ -287,6 +287,17 @@ npm run build
 每台机器人由一个 `RecruitmentSimRobot` ModelPlugin 处理控制和内部服务，直接调用基础算法库。
 `RecruitmentSimSensors` 为相机、IMU 和 GPU 雷达提供 ROS 输出；共享运行库按域管理 Context
 和执行器。没有独立 robot_base 进程或 ROS–Gazebo 传感器桥。
+
+GPU 雷达在加载时为每条固定射线预计算方向向量；每帧只读取距离和反射强度并完成向量缩放，
+随后在 Gazebo 传感器回调中同步构造、发布 `PointCloud2`。同步发布保持数据、时间戳和更新回调
+严格对应，也不会引入后台队列延迟或队列覆盖。
+
+如果以后在真实网络、多订阅者或可靠 DDS 背压下再次出现渲染传感器降频，可以把数据转换和
+ROS 发布扩展为异步工作线程。Gazebo 回调只保留当前帧快照：相机必须先复制 Gazebo 所有的
+图像缓冲区，雷达只复制时间戳、距离和反射强度；各传感器使用独立、有界的最新帧队列，工作
+线程负责消息构造和发布。队列必须记录覆盖丢帧数和排队延迟，并在插件析构时先断开更新回调、
+停止并 join 工作线程，再从 ROS Context 移除节点。只有同步 `publish()` 的实测长尾再次影响
+传感器频率时才启用该方案；容量 1–2 的队列优先保证实时性，不能用无限队列换取不丢帧。
 
 `RecruitmentSimRefereeSimulation` WorldPlugin 在物理步结束时汇总有序发弹/命中事件。
 `/referee_system/simulation/frame` 使用 `SimulationFrame`，控制服务使用 `ControlSimulation`；
