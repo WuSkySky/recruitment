@@ -89,6 +89,9 @@ ROBOT_DOMAIN_IDS = {
     "red/infantry": "20", "red/sentry": "21",
     "blue/infantry": "30", "blue/sentry": "31",
 }
+# 场地里 1.5 x 2.0 m 的启动区兼补给区（点对称）。3.3.2 的解除虚弱与回血都在这里发生。
+RED_SUPPLY_ZONE = [-6.0, -4.5, 2.0, 4.0]
+BLUE_SUPPLY_ZONE = [4.5, 6.0, -4.0, -2.0]
 
 
 def _robot_namespace(robot):
@@ -134,6 +137,26 @@ def _validate_config(config):
         or bounds[2] >= bounds[3]
     ):
         raise RuntimeError("control_zone.bounds must be [min_x, max_x, min_y, max_y]")
+
+    # 3.3.2 回血与复活需要双方补给区；缺省用场地里 1.5 x 2.0 m 的启动区兼补给区。
+    supply = config.get("supply_zones", {})
+    if not isinstance(supply, dict):
+        raise RuntimeError("supply_zones must be a mapping")
+    for team, default in (("red", RED_SUPPLY_ZONE), ("blue", BLUE_SUPPLY_ZONE)):
+        entry = supply.get(team, {})
+        if not isinstance(entry, dict):
+            raise RuntimeError(f"supply_zones.{team} must be a mapping")
+        team_bounds = entry.get("bounds", default)
+        if (
+            not isinstance(team_bounds, list)
+            or len(team_bounds) != 4
+            or any(not isinstance(v, (int, float)) or isinstance(v, bool) for v in team_bounds)
+            or team_bounds[0] >= team_bounds[1]
+            or team_bounds[2] >= team_bounds[3]
+        ):
+            raise RuntimeError(
+                f"supply_zones.{team}.bounds must be [min_x, max_x, min_y, max_y]"
+            )
 
     names = set()
     namespaces = set()
@@ -293,6 +316,13 @@ def _spawn_robots(context: LaunchContext):
                     "use_sim_time": True,
                     "zone_enabled": os.path.basename(LaunchConfiguration("world_file").perform(context)) != "empty_world.sdf",
                     "zone_bounds": [float(v) for v in config.get("control_zone", {}).get("bounds", [-1.5, 1.5, -1.5, 1.5])],
+                    "supply_zone_enabled": True,
+                    "red_supply_zone": [
+                        float(v) for v in config.get("supply_zones", {}).get("red", {}).get("bounds", RED_SUPPLY_ZONE)
+                    ],
+                    "blue_supply_zone": [
+                        float(v) for v in config.get("supply_zones", {}).get("blue", {}).get("bounds", BLUE_SUPPLY_ZONE)
+                    ],
                     "robot_names": [robot["name"] for robot in config["robots"]],
                     "robot_teams": [robot["color"] for robot in config["robots"]],
                     "robot_max_hps": [robot["referee"]["max_hp"] for robot in config["robots"]],

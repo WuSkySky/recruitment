@@ -44,9 +44,18 @@ public:
     robot_names_ = names;
     const auto bounds = declare_parameter("zone_bounds", std::vector<double>{-1.5, 1.5, -1.5, 1.5});
     const bool zone = declare_parameter("zone_enabled", true);
+    // 启动/补给区取场地里 1.5 x 2.0 m 的启动区兼补给区；入场后进己方补给区解除"虚弱"并回血。
+    const auto red_supply = declare_parameter(
+      "red_supply_zone", std::vector<double>{-6.0, -4.5, 2.0, 4.0});
+    const auto blue_supply = declare_parameter(
+      "blue_supply_zone", std::vector<double>{4.5, 6.0, -4.0, -2.0});
+    const bool supply = declare_parameter("supply_zone_enabled", true);
     if (names.empty() || teams.size() != names.size() || hp.size() != names.size() ||
       heat.size() != names.size() || cool.size() != names.size() ||
       bounds.size() != 4) {throw std::runtime_error("invalid referee configuration arrays");}
+    if (red_supply.size() != 4 || blue_supply.size() != 4) {
+      throw std::runtime_error("supply zone bounds must have 4 elements");
+    }
     std::vector<RobotConfig> configs;
     auto qos = rclcpp::QoS(10).reliable().transient_local();
     const std::map<std::string, uint8_t> color_values{
@@ -69,7 +78,12 @@ public:
       odometry_initializers_[names[i]] = create_client<Initialize>(
         "/referee_system/" + names[i] + "/initialize_odometry");
     }
-    match_ = std::make_unique<MatchEngine>(configs, ZoneConfig{zone, bounds[0], bounds[1], bounds[2], bounds[3]});
+    match_ = std::make_unique<MatchEngine>(
+      configs, ZoneConfig{zone, bounds[0], bounds[1], bounds[2], bounds[3]},
+      SupplyConfig{
+        supply,
+        red_supply[0], red_supply[1], red_supply[2], red_supply[3],
+        blue_supply[0], blue_supply[1], blue_supply[2], blue_supply[3]});
     info_publisher_ = create_publisher<Info>("/referee_system/match/info", qos);
     status_publisher_ = create_publisher<Status>("/referee_system/match/status", qos);
     service_ = create_service<Control>("/referee_system/match/control",
@@ -370,7 +384,8 @@ private:
   void publish()
   {
     Info s; s.header.stamp = now(); s.state = match_->state();
-    s.elapsed_seconds = match_->elapsed(); s.remaining_seconds = 300 - s.elapsed_seconds;
+    s.elapsed_seconds = match_->elapsed();
+    s.remaining_seconds = std::max(0.0, MatchEngine::kDurationSeconds - s.elapsed_seconds);
     s.red_victory_points = match_->points()[0]; s.blue_victory_points = match_->points()[1];
     auto d = match_->damage(); auto h = match_->hp();
     s.red_attack_damage = d[0]; s.blue_attack_damage = d[1];
@@ -386,6 +401,12 @@ private:
       msg.shooter_heat = r.heat; msg.heat_limit = r.config.heat_limit; msg.cooling_rate = r.config.cooling_rate;
       msg.shots_last_period = r.shots_last_period; msg.total_shots = r.total_shots; msg.total_hits = r.total_hits;
       msg.alive = r.alive; msg.shooter_overheated = r.overheated; msg.shooter_permanently_locked = r.permanently_locked;
+      msg.invincible = r.invincible; msg.weakened = r.weakened; msg.death_count = r.death_count;
+      const double ns_to_s = 1e-9;
+      msg.revive_remaining_seconds = r.alive ? 0.0 :
+        std::max(0.0, static_cast<double>(r.revive_ready_ns - last_stamp_) * ns_to_s);
+      msg.invincible_remaining_seconds = r.invincible ?
+        std::max(0.0, static_cast<double>(r.invincible_until_ns - last_stamp_) * ns_to_s) : 0.0;
       publishers_.at(item.first)->publish(msg);
     }
   }

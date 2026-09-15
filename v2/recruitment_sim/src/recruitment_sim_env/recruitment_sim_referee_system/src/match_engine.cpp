@@ -6,15 +6,24 @@
 
 namespace recruitment_sim_referee_system
 {
-namespace {constexpr int64_t second = 1000000000LL; constexpr int64_t duration = 300 * second;}
-
-MatchEngine::MatchEngine(std::vector<RobotConfig> configs, ZoneConfig zone)
-: configs_(std::move(configs)), zone_(zone), referee_(configs_)
+namespace {constexpr int64_t second = 1000000000LL;
+constexpr int64_t duration = static_cast<int64_t>(MatchEngine::kDurationSeconds) * second;
+bool valid_bounds(double min_x, double max_x, double min_y, double max_y)
 {
-  if (!std::isfinite(zone.min_x) || !std::isfinite(zone.max_x) ||
-    !std::isfinite(zone.min_y) || !std::isfinite(zone.max_y) ||
-    zone.min_x >= zone.max_x || zone.min_y >= zone.max_y)
+  return std::isfinite(min_x) && std::isfinite(max_x) &&
+    std::isfinite(min_y) && std::isfinite(max_y) && min_x < max_x && min_y < max_y;
+}}
+
+MatchEngine::MatchEngine(std::vector<RobotConfig> configs, ZoneConfig zone, SupplyConfig supply)
+: configs_(std::move(configs)), zone_(zone), supply_(supply), referee_(configs_)
+{
+  if (!valid_bounds(zone.min_x, zone.max_x, zone.min_y, zone.max_y))
   {throw std::invalid_argument("invalid control zone bounds");}
+  if (!valid_bounds(
+      supply.red_min_x, supply.red_max_x, supply.red_min_y, supply.red_max_y) ||
+    !valid_bounds(
+      supply.blue_min_x, supply.blue_max_x, supply.blue_min_y, supply.blue_max_y))
+  {throw std::invalid_argument("invalid supply zone bounds");}
 }
 int MatchEngine::team(const std::string & name) {return name == "red" ? 0 : name == "blue" ? 1 : -1;}
 bool MatchEngine::reset(uint64_t round)
@@ -138,6 +147,7 @@ void MatchEngine::process(const MatchFrame & frame)
   const bool running = state_ == RUNNING;
   if (last_ < 0) {last_ = cooling_ = frame.stamp;}
   const int64_t stamp = running ? std::min(frame.stamp, start_ + duration) : frame.stamp;
+  const int64_t dt = stamp - last_;
   if (running) {advance(stamp);} else {last_ = stamp;}
   // Events belong to a complete physics frame, not independent transport callbacks.
   if (!running || frame.stamp <= start_ + duration) {
@@ -152,12 +162,27 @@ void MatchEngine::process(const MatchFrame & frame)
     }
   }
   while (cooling_ + second / 10 <= stamp) {referee_.cool_one_period(); cooling_ += second / 10;}
+  // 3.3.2 回血与复活在练习和正赛都生效。
+  referee_.advance_time(stamp);
+  if (supply_.enabled) {
+    std::set<std::string> in_supply;
+    for (const auto & p : frame.positions) {
+      const auto r = referee_.robots().find(p.name);
+      if (r == referee_.robots().end() || !r->second.alive) {continue;}
+      const int t = team(r->second.config.team);
+      if (t == 0 && p.x >= supply_.red_min_x && p.x <= supply_.red_max_x &&
+        p.y >= supply_.red_min_y && p.y <= supply_.red_max_y) {in_supply.insert(p.name);}
+      else if (t == 1 && p.x >= supply_.blue_min_x && p.x <= supply_.blue_max_x &&
+        p.y >= supply_.blue_min_y && p.y <= supply_.blue_max_y) {in_supply.insert(p.name);}
+    }
+    referee_.supply_tick(in_supply, dt);
+  }
   if (!running) {return;}
   std::set<std::string> inside;
   if (zone_.enabled) {
     for (const auto & p : frame.positions) {
       const auto r = referee_.robots().find(p.name);
-      if (r != referee_.robots().end() && r->second.alive &&
+      if (r != referee_.robots().end() && r->second.alive && !r->second.weakened &&
         p.x >= zone_.min_x && p.x <= zone_.max_x && p.y >= zone_.min_y && p.y <= zone_.max_y)
       {
         inside.insert(p.name);

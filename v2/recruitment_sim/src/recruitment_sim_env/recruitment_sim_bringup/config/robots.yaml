@@ -1,6 +1,13 @@
 world_name: default
 control_zone:
   bounds: [-1.5, 1.5, -1.5, 1.5]
+# 启动区兼补给区（1.5 x 2.0 m，点对称）。3.3.2：进己方补给区解除"虚弱"与无敌并回血。
+# 省略时使用同一组默认值。
+supply_zones:
+  red:
+    bounds: [-6.0, -4.5, 2.0, 4.0]
+  blue:
+    bounds: [4.5, 6.0, -4.0, -2.0]
 robots:
   # Red start zone: x in [-6.0, -4.5], y in [2.0, 4.0].
   # Both robots are centered on the 1.5 m short side (x = -5.25) and

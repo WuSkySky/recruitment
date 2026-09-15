@@ -2,6 +2,8 @@
 #include "recruitment_sim_referee_system/match_engine.hpp"
 namespace r = recruitment_sim_referee_system;
 constexpr int64_t sec = 1000000000LL;
+// 比赛时长取自引擎常量，测试里不再写第二份字面量
+constexpr int64_t match_sec = static_cast<int64_t>(r::MatchEngine::kDurationSeconds);
 static std::vector<r::RobotConfig> robots(int hp = 40)
 {
   return {{"r", "red", hp, 88, 24}, {"r2", "red", hp, 88, 24}, {"b", "blue", hp, 88, 24}};
@@ -123,32 +125,35 @@ TEST(Match, SimultaneousZeroAndFreeze)
 }
 TEST(Match, OccupationVictory)
 {
+  // 180 s 赛制下，占点满全场也只能扣 match_sec 点，不足以单独清零 200 点胜利点，
+  // 因此这里验证占点结算本身，胜负由超时判定给出。
   r::MatchEngine m(robots()); run(m);
-  m.process(frame(1, {{"r", 0, 0}})); m.process(frame(200 * sec + 1, {{"r", 0, 0}}));
-  EXPECT_EQ(m.result(), r::MatchEngine::RED_WIN); EXPECT_EQ(m.points()[1], 0);
+  m.process(frame(1, {{"r", 0, 0}})); m.process(frame(match_sec * sec, {{"r", 0, 0}}));
+  EXPECT_EQ(m.result(), r::MatchEngine::RED_WIN);
+  EXPECT_EQ(m.points()[1], 200 - (match_sec - 1));
 }
 TEST(Match, TimeoutTieBreakersAndCutoff)
 {
   {
     r::MatchEngine m(robots()); run(m);
-    auto f = frame(301 * sec); f.hits = {hit("r", "b", 1, 301 * sec)};
-    m.process(f); EXPECT_EQ(m.elapsed(), 300); EXPECT_EQ(m.damage()[0], 0u);
+    auto f = frame((match_sec + 1) * sec); f.hits = {hit("r", "b", 1, (match_sec + 1) * sec)};
+    m.process(f); EXPECT_EQ(m.elapsed(), match_sec); EXPECT_EQ(m.damage()[0], 0u);
     EXPECT_EQ(m.result(), r::MatchEngine::RED_WIN); // Two reds: more total HP.
   }
   {
     r::MatchEngine m({{"r", "red", 40, 88, 24}, {"b", "blue", 40, 88, 24}});
-    run(m); m.process(frame(300 * sec));
+    run(m); m.process(frame(match_sec * sec));
     EXPECT_EQ(m.result(), r::MatchEngine::DRAW);
   }
   {
     r::MatchEngine m(robots()); run(m);
     auto f = frame(sec); f.hits = {hit("b", "r", 1, sec)}; m.process(f);
-    m.process(frame(300 * sec)); EXPECT_EQ(m.result(), r::MatchEngine::BLUE_WIN);
+    m.process(frame(match_sec * sec)); EXPECT_EQ(m.result(), r::MatchEngine::BLUE_WIN);
   }
   {
     r::MatchEngine m(robots()); run(m);
     m.process(frame(1, {{"b", 0, 0}})); m.process(frame(sec + 1));
-    m.process(frame(300 * sec)); EXPECT_EQ(m.result(), r::MatchEngine::BLUE_WIN);
+    m.process(frame(match_sec * sec)); EXPECT_EQ(m.result(), r::MatchEngine::BLUE_WIN);
   }
 }
 TEST(Match, AbortErrorsDisabledZoneAndCooling)
@@ -165,4 +170,105 @@ TEST(Match, AbortErrorsDisabledZoneAndCooling)
   ASSERT_TRUE(m.reset(2)); m.end(); m.paused(); EXPECT_EQ(m.state(), r::MatchEngine::FINISHED);
   ASSERT_TRUE(m.reset(3)); m.fail("timeout"); EXPECT_EQ(m.state(), r::MatchEngine::ERROR);
   ASSERT_TRUE(m.reset(4)); m.reset_complete(); ASSERT_TRUE(m.start(sec)); EXPECT_TRUE(m.error().empty());
+}
+// ---- 3.3.2 回血与复活 ----
+namespace
+{
+// 场地里的己方补给区中心：红 (-5.25, 3.0)、蓝 (5.25, -3.0)。
+constexpr double kRedSupplyX = -5.25, kRedSupplyY = 3.0;
+constexpr double kBlueSupplyX = 5.25, kBlueSupplyY = -3.0;
+constexpr int64_t kHitGap = 60000000;  // 避开装甲 50 ms 检测间隔
+}  // namespace
+
+TEST(Match, DeathPenaltyAppliesOnEveryDeath)
+{
+  r::MatchEngine m({{"r", "red", 40, 88, 24}, {"b", "blue", 40, 88, 24}});
+  run(m);
+  auto first = frame(sec); first.hits = {hit("r", "b", 1, sec)};
+  m.process(first);
+  EXPECT_EQ(m.points()[1], 200);  // 一发 20 伤害，40 HP 还活着
+
+  const int64_t death1 = sec + kHitGap;
+  auto second = frame(death1); second.hits = {hit("r", "b", 2, death1)};
+  m.process(second);
+  EXPECT_EQ(m.points()[1], 180);
+  EXPECT_FALSE(m.referee().robots().at("b").alive);
+
+  // 读条 5 s 后原地复活，血量 20%
+  const int64_t revived = death1 + 5 * sec;
+  m.process(frame(revived));
+  ASSERT_TRUE(m.referee().robots().at("b").alive);
+  EXPECT_EQ(m.referee().robots().at("b").current_hp, 8);
+  ASSERT_TRUE(m.referee().robots().at("b").weakened);
+
+  // 回己方补给区解除虚弱与无敌
+  m.process(frame(revived + sec, {{"b", kBlueSupplyX, kBlueSupplyY}}));
+  ASSERT_FALSE(m.referee().robots().at("b").invincible);
+  ASSERT_FALSE(m.referee().robots().at("b").weakened);
+
+  // 再次击毁 → 再扣 20
+  const int64_t death2 = revived + 2 * sec;
+  auto third = frame(death2); third.hits = {hit("r", "b", 3, death2)};
+  m.process(third);
+  EXPECT_EQ(m.points()[1], 160);
+  EXPECT_EQ(m.referee().robots().at("b").death_count, 2u);
+  // 第二次战亡读条 10 s
+  EXPECT_EQ(m.referee().robots().at("b").revive_ready_ns, death2 + 10 * sec);
+}
+
+TEST(Match, WeakenedRobotCannotOccupyControlZone)
+{
+  r::MatchEngine m({{"r", "red", 40, 88, 24}, {"b", "blue", 40, 88, 24}});
+  run(m);
+  auto first = frame(sec); first.hits = {hit("r", "b", 1, sec)};
+  m.process(first);
+  auto second = frame(sec + kHitGap); second.hits = {hit("r", "b", 2, sec + kHitGap)};
+  m.process(second);
+  ASSERT_FALSE(m.referee().robots().at("b").alive);
+
+  m.process(frame(sec + kHitGap + 5 * sec));
+  ASSERT_TRUE(m.referee().robots().at("b").alive);
+  ASSERT_TRUE(m.referee().robots().at("b").weakened);
+
+  // 虚弱状态下站在控制区中央不占点
+  m.process(frame(sec + kHitGap + 6 * sec, {{"b", 0, 0}}));
+  EXPECT_EQ(m.owner(), -1);
+  EXPECT_TRUE(m.eligible().empty());
+  EXPECT_EQ(m.points()[0], 200);
+
+  // 回补给区解除虚弱后可以正常占领
+  m.process(frame(sec + kHitGap + 7 * sec, {{"b", kBlueSupplyX, kBlueSupplyY}}));
+  ASSERT_FALSE(m.referee().robots().at("b").weakened);
+  m.process(frame(sec + kHitGap + 8 * sec, {{"b", 0, 0}}));
+  EXPECT_EQ(m.owner(), 1);
+}
+
+TEST(Match, SupplyZoneHealsAtQuarterMaxPerSecond)
+{
+  r::MatchEngine m(robots(40));
+  run(m);
+  auto f = frame(sec); f.hits = {hit("r", "b", 1, sec)};
+  m.process(f);
+  EXPECT_EQ(m.referee().robots().at("b").current_hp, 20);
+
+  // 进己方补给区 1 s → 回 25% * 40 = 10
+  m.process(frame(2 * sec, {{"b", kBlueSupplyX, kBlueSupplyY}}));
+  EXPECT_EQ(m.referee().robots().at("b").current_hp, 30);
+  // 红方在红区同理
+  m.process(frame(3 * sec, {{"b", kBlueSupplyX, kBlueSupplyY}, {"r", kRedSupplyX, kRedSupplyY}}));
+  EXPECT_EQ(m.referee().robots().at("r").current_hp, 40);
+}
+
+TEST(Match, TrainingAlsoRevivesWithoutScoring)
+{
+  r::MatchEngine m(robots(7));
+  auto f = frame(sec); f.round = 0; f.hits = {hit("r", "b", 1, sec)};
+  m.process(f);
+  EXPECT_FALSE(m.referee().robots().at("b").alive);
+  EXPECT_EQ(m.points()[1], 200);
+
+  auto g = frame(sec + 6 * sec); g.round = 0;
+  m.process(g);
+  EXPECT_TRUE(m.referee().robots().at("b").alive);
+  EXPECT_EQ(m.points()[1], 200);
 }

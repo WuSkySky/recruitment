@@ -10,6 +10,14 @@ struct ZoneConfig
   bool enabled{true};
   double min_x{-1.5}, max_x{1.5}, min_y{-1.5}, max_y{1.5};
 };
+/// 双方启动/补给区。默认取 RMUL 2026 3V3 场地里 1.5 x 2.0 m 的启动区兼补给区。
+/// 与 ZoneConfig 不同，这里默认始终启用：关闭会让"虚弱"永远无法解除。
+struct SupplyConfig
+{
+  bool enabled{true};
+  double red_min_x{-6.0}, red_max_x{-4.5}, red_min_y{2.0}, red_max_y{4.0};
+  double blue_min_x{4.5}, blue_max_x{6.0}, blue_min_y{-4.0}, blue_max_y{-2.0};
+};
 struct RobotPosition {std::string name; double x, y;};
 struct MatchFrame
 {
@@ -22,9 +30,12 @@ struct MatchFrame
 class MatchEngine
 {
 public:
+  // 比赛时长（秒）。裁判节点与 Web 端共用这一个来源，不要再写重复的字面量。
+  static constexpr double kDurationSeconds{180.0};
   enum State : uint8_t {TRAINING, STARTING, RUNNING, ENDING, FINISHED, ERROR, READY, RESETTING};
   enum Result : uint8_t {NONE, RED_WIN, BLUE_WIN, DRAW, ABORTED};
-  explicit MatchEngine(std::vector<RobotConfig> configs, ZoneConfig zone = {});
+  explicit MatchEngine(
+    std::vector<RobotConfig> configs, ZoneConfig zone = {}, SupplyConfig supply = {});
   bool reset(uint64_t round);
   void reset_complete();
   bool start(int64_t stamp);
@@ -53,6 +64,7 @@ private:
   void settle(bool timeout);
   std::vector<RobotConfig> configs_;
   ZoneConfig zone_;
+  SupplyConfig supply_;
   RefereeEngine referee_;
   State state_{TRAINING};
   Result result_{NONE};

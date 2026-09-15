@@ -11,3 +11,8 @@ uint64 total_hits
 bool alive
 bool shooter_overheated
 bool shooter_permanently_locked
+bool invincible
+bool weakened
+uint32 death_count
+float64 revive_remaining_seconds
+float64 invincible_remaining_seconds

@@ -32,6 +32,14 @@ struct RobotState
   bool alive{true};
   bool overheated{false};
   bool permanently_locked{false};
+  // 3.3.2.2 复活机制：战亡后读条复活，复活后无敌 30 s 且进入"虚弱"。
+  bool invincible{false};
+  bool weakened{false};
+  std::uint32_t death_count{0};
+  std::int64_t revive_ready_ns{0};       ///< 读条完成时刻（仿真 ns），0 表示无待复活读条
+  std::int64_t invincible_until_ns{0};   ///< 无敌结束时刻（仿真 ns）
+  bool shooter_cmd{true};                ///< 上次下发的 SHOOTER 部件开关，用于去重下发
+  double heal_carry{0.0};                ///< 3.3.2.1 回血的小数进位
 };
 
 struct ShotEvent
@@ -68,12 +76,18 @@ public:
   bool process_shot(const ShotEvent & event);
   bool process_hit(const HitEvent & event);
   void cool_one_period();
+  /// 结算复活读条与无敌到期。now_ns 为当前仿真时刻。
+  void advance_time(std::int64_t now_ns);
+  /// 结算己方补给区：解除"虚弱"与无敌，并按每秒 25% 上限血量回血。
+  void supply_tick(const std::set<std::string> & in_own_supply, std::int64_t dt_ns);
 
   const std::map<std::string, RobotState> & robots() const {return robots_;}
   std::vector<ControlCommand> take_control_commands();
 
 private:
   void update_heat_lock(RobotState & robot);
+  /// 按"过热 / 永久锁 / 虚弱 / 存活"组合出 SHOOTER 部件开关，变化时才下发。
+  void sync_shooter(RobotState & robot);
 
   std::map<std::string, RobotState> robots_;
   std::map<std::string, std::int64_t> armor_last_hit_ns_;
